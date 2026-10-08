@@ -6,3 +6,4 @@ local.properties
 .gradle-user/
 .android-sdk/
 .tools/
+.kotlin/

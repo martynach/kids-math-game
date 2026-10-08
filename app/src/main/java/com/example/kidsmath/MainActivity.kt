@@ -18,6 +18,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,6 +26,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import android.view.inputmethod.EditorInfo
+import androidx.compose.ui.platform.InterceptPlatformTextInput
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -46,6 +52,9 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
+import android.os.Build
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -55,6 +64,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
+import androidx.core.view.inputmethod.EditorInfoCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.AndroidViewModel
@@ -76,6 +86,7 @@ private val RoundedBold = FontFamily(androidx.compose.ui.text.font.Typeface(
 private val TitleStyle = TextStyle(fontFamily = RoundedBold, fontWeight = FontWeight.Black,
     shadow = Shadow(Color(0xFF020B2B), Offset(0f, 3f), 3f))
 
+@OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -86,7 +97,9 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Blue, background = Navy)) {
-                CompositionLocalProvider(LocalTextStyle provides LocalTextStyle.current.copy(fontFamily = RoundedFont)) {
+                // The buttons already animate their press. Avoid native RippleDrawable,
+                // which crashes the API 35 x86_64/16 KB emulator during navigation.
+                CompositionLocalProvider(LocalRippleConfiguration provides null, LocalTextStyle provides LocalTextStyle.current.copy(fontFamily = RoundedFont)) {
                     KidsMathApp(onExit = { finishAndRemoveTask() })
                 }
             }
@@ -94,10 +107,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+enum class Screen { MENU, SETTINGS, MAP, GAME }
+
 class AppState(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("settings", 0)
+    private val campaignStore = CampaignStore(application)
+    var campaign by mutableStateOf(campaignStore.load()); private set
     var settings by mutableStateOf(readSettings()); private set
-    var screen by mutableStateOf("menu")
+    var screen by mutableStateOf(Screen.MENU)
     var game by mutableStateOf<Game?>(null); private set
     var revision by mutableIntStateOf(0); private set
     private fun readSettings(): Settings {
@@ -111,34 +128,54 @@ class AppState(application: Application) : AndroidViewModel(application) {
     fun save(value: Settings) {
         prefs.edit().putString("name", value.name).putString("operations", value.operations.name)
             .putInt("min", value.min).putInt("max", value.max).apply()
-        settings = value; screen = "menu"
+        settings = value; screen = Screen.MENU
     }
-    fun start() { game = Game(settings, SystemClock.elapsedRealtime()); screen = "game"; revision++ }
-    fun update(action: (Game) -> Unit) { game?.let(action); revision++ }
+    fun openMap() { game = null; screen = Screen.MAP; revision++ }
+    fun start(level: Int) {
+        if (!campaign.canStart(level)) return
+        game = Game(settings, CampaignConfig.levels[level - 1]); screen = Screen.GAME; revision++
+    }
+    fun retry() { game?.config?.level?.let(::start) }
+    fun resetProgress() { campaign = CampaignProgress(); campaignStore.save(campaign) }
+    fun leaveGame() { game = null; screen = Screen.MAP; revision++ }
+    fun update(action: (Game) -> Unit) { game?.let {
+            action(it)
+            if (it.phase == Phase.LEVEL_COMPLETE) {
+                val next = campaign.complete(it.config.level)
+                if (next != campaign) { campaignStore.save(next); campaign = next }
+            }
+        }; revision++ }
 }
 
 @Composable
 private fun KidsMathApp(onExit: () -> Unit, state: AppState = viewModel()) {
-    var confirmLeave by rememberSaveable { mutableStateOf(false) }
-    BackHandler(state.screen != "menu") {
-        if (state.screen == "settings") state.screen = "menu" else confirmLeave = true
+    @Suppress("UNUSED_VARIABLE") val revision = state.revision
+    val confirmLeave = state.game?.pausedAt != null
+    val requestLeave = {
+        if (state.game?.phase == Phase.LEVEL_COMPLETE || state.game?.phase == Phase.GAME_OVER) state.leaveGame()
+        else state.update { it.pause(SystemClock.elapsedRealtime()) }
+    }
+    val cancelLeave = { state.update { it.resume(SystemClock.elapsedRealtime()) } }
+    BackHandler(state.screen != Screen.MENU) {
+        if (state.screen == Screen.SETTINGS || state.screen == Screen.MAP) state.screen = Screen.MENU else requestLeave()
     }
     Box(Modifier.fillMaxSize().background(Navy)) {
-        SpaceBackground()
+        SpaceBackground(vibrant = state.screen == Screen.MAP)
         Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(horizontal = 14.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
             when (state.screen) {
-                "settings" -> SettingsScreen(state.settings, state::save) { state.screen = "menu" }
-                "game" -> GameScreen(state) { state.screen = "menu" }
-                else -> MainMenu(state.settings, state::start, { state.screen = "settings" }, onExit)
+                Screen.SETTINGS -> SettingsScreen(state.settings, state::save, state::resetProgress) { state.screen = Screen.MENU }
+                Screen.MAP -> SpaceMap(state)
+                Screen.GAME -> GameScreen(state, state::leaveGame, requestLeave)
+                Screen.MENU -> MainMenu(state.settings, state::openMap, { state.screen = Screen.SETTINGS }, onExit)
             }
         }
     }
-    if (confirmLeave) AlertDialog(onDismissRequest = { confirmLeave = false },
-        title = { Text("Leave this space adventure?") },
-        text = { Text("A new game will start from round 1.") },
-        confirmButton = { TextButton(onClick = { confirmLeave = false; state.screen = "menu" }) { Text("Main Menu") } },
-        dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Keep Playing") } })
+    if (confirmLeave) AlertDialog(onDismissRequest = cancelLeave,
+        title = { Text("Return to Space Map?") },
+        text = { Text("Are you sure you want to stop playing? Energy in this attempt will be lost. Unlocked levels stay available.") },
+        confirmButton = { TextButton(onClick = state::leaveGame) { Text("Space Map") } },
+        dismissButton = { TextButton(onClick = cancelLeave) { Text("Keep Playing") } })
 }
 
 @Composable
@@ -165,7 +202,7 @@ private fun MainMenu(settings: Settings, start: () -> Unit, configure: () -> Uni
                 fontSize = 36.sp, style = TitleStyle, maxLines = 1)
             if (settings.name.isNotBlank()) Text("${settings.name}!", color = Color(0xFFFF8ED4), fontSize = 26.sp,
                 style = TitleStyle, maxLines = 1)
-            SpaceButton("▶  New Game", Green, Modifier.width(250.dp), start)
+            SpaceButton("Start Game", Green, Modifier.width(250.dp), start)
             SpaceButton("⚙  Settings", Blue, Modifier.width(250.dp), configure)
             SpaceButton("Exit", Color(0xFFEE4058), Modifier.width(250.dp), exit)
         }
@@ -205,8 +242,21 @@ private fun PolishedButton(label: String, color: Color, modifier: Modifier = Mod
 }
 
 @Composable
-private fun SettingsScreen(initial: Settings, save: (Settings) -> Unit, back: () -> Unit) {
+@OptIn(ExperimentalComposeUiApi::class)
+private fun SettingsScreen(initial: Settings, save: (Settings) -> Unit, reset: () -> Unit, back: () -> Unit) {
+    var confirmReset by rememberSaveable { mutableStateOf(false) }
+    if (confirmReset) AlertDialog(onDismissRequest = { confirmReset = false },
+        title = { Text("Reset progress?") },
+        text = { Text("All completed levels and your current progress will be lost. You'll start your space adventure again from Level 1.") },
+        confirmButton = { TextButton(onClick = { reset(); confirmReset = false }) { Text("Reset", color = Color(0xFFFF5268)) } },
+        dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Cancel") } })
     val keyboard = LocalSoftwareKeyboardController.current
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val wasEnabled = if (Build.VERSION.SDK_INT >= 33) view.isAutoHandwritingEnabled else false
+        if (Build.VERSION.SDK_INT >= 33) view.setAutoHandwritingEnabled(false)
+        onDispose { if (Build.VERSION.SDK_INT >= 33) view.setAutoHandwritingEnabled(wasEnabled) }
+    }
     var name by rememberSaveable { mutableStateOf(initial.name) }
     var operations by rememberSaveable { mutableStateOf(initial.operations) }
     var min by rememberSaveable { mutableStateOf(initial.min.toString()) }
@@ -214,49 +264,60 @@ private fun SettingsScreen(initial: Settings, save: (Settings) -> Unit, back: ()
     val minNumber = min.toIntOrNull()
     val maxNumber = max.toIntOrNull()
     val valid = minNumber != null && maxNumber != null && minNumber in 0..100 && maxNumber in minNumber..100
-    Column(Modifier.widthIn(max = 900.dp).fillMaxSize()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            SpaceButton("‹ Back", Blue, onClick = { keyboard?.hide(); back() })
-            Text("Settings", Modifier.weight(1f), color = Color.White, fontSize = 32.sp,
-                style = TitleStyle, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    InterceptPlatformTextInput(interceptor = { request, nextHandler ->
+        nextHandler.startInputMethod { attributes ->
+            request.createInputConnection(attributes).also {
+                attributes.imeOptions = attributes.imeOptions or EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_FULLSCREEN
+                EditorInfoCompat.setStylusHandwritingEnabled(attributes, false)
+            }
         }
-        Column(Modifier.padding(top = 8.dp).weight(1f).fillMaxWidth()
-            .shadow(10.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp))
-            .background(Brush.verticalGradient(listOf(Color(0xFFF1FAFF), Pale)))
-            .border(2.dp, Color.White.copy(alpha = .9f), RoundedCornerShape(24.dp))
-            .verticalScroll(rememberScrollState()).padding(16.dp)) {
-            val fields = OutlinedTextFieldDefaults.colors(focusedTextColor = Navy, unfocusedTextColor = Navy,
-                focusedLabelColor = Navy, unfocusedLabelColor = Navy, cursorColor = Navy,
-                focusedBorderColor = Blue, unfocusedBorderColor = Color(0xFF7A9BC4),
-                focusedContainerColor = Color.White, unfocusedContainerColor = Color.White)
-            OutlinedTextField(name, { name = it }, label = { Text("Player name (optional)") },
-                singleLine = true, colors = fields, modifier = Modifier.fillMaxWidth())
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Text("Type of operations", color = Navy, fontFamily = RoundedBold, fontWeight = FontWeight.Bold)
-                    Operations.entries.forEach { option ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(operations == option, { operations = option },
-                                colors = RadioButtonDefaults.colors(selectedColor = Blue, unselectedColor = Navy))
-                            Text(when (option) { Operations.ADDITION -> "Addition"; Operations.SUBTRACTION -> "Subtraction"
-                                Operations.BOTH -> "Addition and Subtraction" }, color = Navy)
+    }) {
+        Column(Modifier.widthIn(max = 900.dp).fillMaxSize().imePadding()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SpaceButton("‹ Back", Blue, onClick = { keyboard?.hide(); back() })
+                Text("Settings", Modifier.weight(1f), color = Color.White, fontSize = 32.sp,
+                    style = TitleStyle, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            }
+            Column(Modifier.padding(top = 8.dp).weight(1f).fillMaxWidth()
+                .shadow(10.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp))
+                .background(Brush.verticalGradient(listOf(Color(0xFFF1FAFF), Pale)))
+                .border(2.dp, Color.White.copy(alpha = .9f), RoundedCornerShape(24.dp))
+                .verticalScroll(rememberScrollState()).padding(16.dp)) {
+                val fields = OutlinedTextFieldDefaults.colors(focusedTextColor = Navy, unfocusedTextColor = Navy,
+                    focusedLabelColor = Navy, unfocusedLabelColor = Navy, cursorColor = Navy,
+                    focusedBorderColor = Blue, unfocusedBorderColor = Color(0xFF7A9BC4),
+                    focusedContainerColor = Color.White, unfocusedContainerColor = Color.White)
+                OutlinedTextField(name, { name = it }, label = { Text("Player name (optional)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                    singleLine = true, colors = fields, modifier = Modifier.fillMaxWidth())
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        PolishedButton("Reset Progress", Color(0xFFBE2944), onClick = { confirmReset = true })
+                        Text("Type of operations", color = Navy, fontFamily = RoundedBold, fontWeight = FontWeight.Bold)
+                        Operations.entries.forEach { option ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(operations == option, { operations = option },
+                                    colors = RadioButtonDefaults.colors(selectedColor = Blue, unselectedColor = Navy))
+                                Text(when (option) { Operations.ADDITION -> "Addition"; Operations.SUBTRACTION -> "Subtraction"
+                                    Operations.BOTH -> "Addition and Subtraction" }, color = Navy)
+                            }
                         }
                     }
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("Result range (0–100)", color = Navy, fontFamily = RoundedBold, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(min, { min = it }, label = { Text("MIN") }, singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = fields,
-                            modifier = Modifier.weight(1f), isError = !valid)
-                        OutlinedTextField(max, { max = it }, label = { Text("MAX") }, singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = fields,
-                            modifier = Modifier.weight(1f), isError = !valid)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("Result range (0–100)", color = Navy, fontFamily = RoundedBold, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedTextField(min, { min = it }, label = { Text("MIN") }, singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = fields,
+                                modifier = Modifier.weight(1f), isError = !valid)
+                            OutlinedTextField(max, { max = it }, label = { Text("MAX") }, singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = fields,
+                                modifier = Modifier.weight(1f), isError = !valid)
+                        }
+                        if (!valid) Text("Enter whole numbers from 0 to 100. MIN must be ≤ MAX.", color = Color(0xFFAA1838), fontSize = 13.sp)
+                        PolishedButton("Save Settings", Green, Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = valid, onClick = {
+                            if (valid) { keyboard?.hide(); save(Settings(name.trim(), operations, minNumber!!, maxNumber!!)) }
+                        })
                     }
-                    if (!valid) Text("Enter whole numbers from 0 to 100. MIN must be ≤ MAX.", color = Color(0xFFAA1838), fontSize = 13.sp)
-                    PolishedButton("Save Settings", Green, Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = valid, onClick = {
-                        if (valid) { keyboard?.hide(); save(Settings(name.trim(), operations, minNumber!!, maxNumber!!)) }
-                    })
                 }
             }
         }
@@ -264,39 +325,39 @@ private fun SettingsScreen(initial: Settings, save: (Settings) -> Unit, back: ()
 }
 
 @Composable
-private fun GameScreen(state: AppState, menu: () -> Unit) {
+private fun GameScreen(state: AppState, menu: () -> Unit, requestLeave: () -> Unit) {
     val game = state.game ?: return
     // The revision makes the small, pure Kotlin game model observable without Compose dependencies.
     @Suppress("UNUSED_VARIABLE") val revision = state.revision
     val lives = game.lives
-    val answerAnimation = remember { Animatable(0f) }
+    val answerAnimation = remember(game) { Animatable(0f) }
     LaunchedEffect(game.phase, game.question) {
         answerAnimation.snapTo(0f)
-        if (game.phase == Phase.FEEDBACK) answerAnimation.animateTo(1f, tween(650))
+        if (game.phase == Phase.FEEDBACK) answerAnimation.animateTo(1f, tween(GameRules.ANSWER_FEEDBACK_MS.toInt() - 100, easing = LinearEasing))
     }
-    var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     LaunchedEffect(game) {
         while (true) {
-            now = SystemClock.elapsedRealtime()
-            state.update { it.tick(now) }
+            state.update { it.tick(SystemClock.elapsedRealtime()) }
             delay(50)
         }
     }
     when (game.phase) {
-        Phase.ROUND_COMPLETE, Phase.VICTORY, Phase.GAME_OVER -> EndScreen(game, menu,
-            { state.update { it.nextRound(SystemClock.elapsedRealtime()) } }, state::start)
+        Phase.LEVEL_COMPLETE -> CompletionScreen(game, menu)
+        Phase.GAME_OVER -> GameOverScreen(game, menu, state::retry)
         else -> Column(Modifier.widthIn(max = 1050.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f).semantics { contentDescription = "Lives remaining: $lives" }) {
                     repeat(lives) { Text("♥", color = Color(0xFFFF5268),
                         fontSize = 32.sp, style = TitleStyle, modifier = Modifier.padding(end = 6.dp)) }
                 }
-                Text("Round ${game.round}", Modifier.shadow(4.dp, RoundedCornerShape(12.dp))
+                Text("Level ${game.config.level}", Modifier.shadow(4.dp, RoundedCornerShape(12.dp))
                     .background(Brush.verticalGradient(listOf(Color(0xFF244E9B), Color(0xFF13316A))), RoundedCornerShape(12.dp))
                     .border(1.dp, Color(0xFF7399D9).copy(alpha = .5f), RoundedCornerShape(12.dp))
                     .padding(horizontal = 22.dp, vertical = 3.dp), color = Color.White, style = TitleStyle, fontSize = 21.sp)
-                Text("★  ${game.correct} / 5", Modifier.weight(1f), color = Gold, fontWeight = FontWeight.Bold,
+                Text("★  ${game.correct} / ${game.config.requiredCorrectAnswers}", Modifier.weight(1f), color = Gold, fontWeight = FontWeight.Bold,
                     fontSize = 23.sp, style = TitleStyle, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                Spacer(Modifier.width(12.dp))
+                SpaceButton("⌂ Map", Blue, onClick = requestLeave)
             }
             Box(Modifier.padding(top = 5.dp).widthIn(max = 420.dp).fillMaxWidth(.62f)
                 .graphicsLayer {
@@ -315,21 +376,10 @@ private fun GameScreen(state: AppState, menu: () -> Unit) {
                     else -> Color(0xFFBE2944)
                 }, fontSize = 36.sp, fontFamily = RoundedBold, fontWeight = FontWeight.Black)
             }
-            if (game.round > 1) {
-                val remaining = (game.deadline - now).coerceAtLeast(0)
-                Row(Modifier.widthIn(max = 400.dp).fillMaxWidth(.62f).padding(top = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    LinearProgressIndicator(progress = { (remaining.toFloat() / GameRules.timeLimitMs(game.round)).coerceIn(0f, 1f) },
-                        modifier = Modifier.weight(1f).height(12.dp).border(1.dp, Color(0xFFB9DBFF), RoundedCornerShape(8.dp)), color = if (remaining < 10_000) Color(0xFFFF6688) else Gold,
-                        trackColor = Color(0xFF365688))
-                    Text("${(remaining + 999) / 1000}s", color = Color.White, fontFamily = RoundedBold, fontWeight = FontWeight.Bold)
-                }
-            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                Journey(game.correct, game.round)
+                EnergyScene(game, answerAnimation.value)
                 if (game.phase == Phase.FEEDBACK) FeedbackOverlay(game.feedback!!, when (game.feedback) {
                     Feedback.CORRECT -> game.settings.greeting("Great job")
-                    Feedback.TIMEOUT -> "Time's up! Keep going!"
                     else -> "Keep going! You can do it!"
                 })
             }
@@ -367,31 +417,6 @@ private fun Key(label: String, description: String, color: Color, modifier: Modi
 }
 
 @Composable
-private fun Journey(correct: Int, round: Int) {
-    val progress by animateFloatAsState(correct / 5f, tween(650, easing = FastOutSlowInEasing), label = "Rocket progress")
-    val thruster = rememberInfiniteTransition(label = "Rocket thruster")
-    val flame by thruster.animateFloat(.85f, 1.15f, infiniteRepeatable(tween(420), RepeatMode.Reverse), label = "Flame flicker")
-    Canvas(Modifier.fillMaxSize().semantics { contentDescription = "Rocket journey: $correct of 5 steps" }) {
-        val start = size.width * .12f
-        val end = size.width * .85f
-        val y = size.height * .64f
-        fun route(t: Float) = Offset(start + (end - start) * t,
-            y + sin(t * Math.PI * 3).toFloat() * minOf(size.height * .13f, 16.dp.toPx()))
-        for (i in 0..47) {
-            drawLine(Color(0xFF9FDBFF).copy(alpha = .7f), route(i / 48f), route((i + .45f) / 48f), 2.dp.toPx())
-        }
-        for (i in 1..5) star(route(i / 5f), size.height.coerceAtMost(150.dp.toPx()) * .11f,
-            if (i <= correct) Color(0xFFFFF2A1) else Gold)
-        planet(Offset(end + size.width * .04f, y), minOf(size.height * .34f, size.width * .073f),
-            when (round) { 1 -> Color(0xFFFFAE53); 2 -> Color(0xFF35BBD9); else -> Color(0xFFFF7288) })
-        val position = route(progress)
-        rotate(cos(progress * Math.PI * 3).toFloat() * 7f, position) {
-            rocket(position, minOf(size.height * .57f, 112.dp.toPx()), flame)
-        }
-    }
-}
-
-@Composable
 private fun FeedbackOverlay(feedback: Feedback, message: String) {
     val happy = feedback == Feedback.CORRECT
     val animation = remember(feedback) { Animatable(0f) }
@@ -400,16 +425,23 @@ private fun FeedbackOverlay(feedback: Feedback, message: String) {
     }
     Box(Modifier.fillMaxSize()) {
         if (happy) Canvas(Modifier.fillMaxSize().semantics { contentDescription = "Celebration confetti" }) {
-            confetti(animation.value, 46)
+            val beats = animation.value * 3f
+            confetti(beats % 1f, 55, seed = 23 + beats.toInt())
+            repeat(18) { index ->
+                val random = Random(402 + index)
+                val point = Offset(random.nextFloat() * size.width, random.nextFloat() * size.height * .8f)
+                val flash = (.5f + .5f * sin(animation.value * 18f + index)).coerceIn(0f, 1f)
+                star(point, (3f + flash * 7f).dp.toPx(), if (index % 2 == 0) Gold else Color(0xFF91FFFF))
+            }
             repeat(7) { index ->
                 val angle = index * Math.PI * 2 / 7
                 val radius = animation.value * size.height * .65f
-                val center = Offset(size.width * .5f, size.height * .48f) +
+                val center = Offset(size.width * .82f, size.height * .18f) +
                     Offset(cos(angle).toFloat(), sin(angle).toFloat()) * radius
                 star(center, (1f - animation.value) * 10.dp.toPx(), Gold)
             }
         }
-        Row(Modifier.align(Alignment.TopCenter).padding(top = 4.dp)
+        Row(Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 8.dp)
             .shadow(5.dp, RoundedCornerShape(18.dp))
             .background(Brush.verticalGradient(listOf(Color(0xF02B4385), Color(0xF00E2051))), RoundedCornerShape(18.dp))
             .border(1.dp, (if (happy) Gold else Color(0xFFFFA9B7)).copy(alpha = .7f), RoundedCornerShape(18.dp))
@@ -439,73 +471,27 @@ private fun FeedbackOverlay(feedback: Feedback, message: String) {
 }
 
 @Composable
-private fun EndScreen(game: Game, menu: () -> Unit, next: () -> Unit, again: () -> Unit) {
-    val victory = game.phase == Phase.VICTORY
-    val lost = game.phase == Phase.GAME_OVER
-    val celebration = rememberInfiniteTransition(label = "Celebration")
-    val cycle by celebration.animateFloat(0f, 1f, infiniteRepeatable(tween(6000, easing = LinearEasing)), label = "Confetti shower")
-    val bob by celebration.animateFloat(-1f, 1f, infiniteRepeatable(tween(1900), RepeatMode.Reverse), label = "Celebration floating")
-    Box(Modifier.widthIn(max = 950.dp).fillMaxSize()) {
-        if (!lost) Canvas(Modifier.fillMaxSize()) {
-            confetti(cycle, if (victory) 95 else 42, seed = 34)
-            if (victory) {
-                val origin = Offset(size.width * .24f, size.height * .44f)
-                repeat(12) { index ->
-                    val angle = index * Math.PI / 6 + cycle * .3
-                    val point = origin + Offset(cos(angle).toFloat() * size.height * .42f,
-                        sin(angle).toFloat() * size.height * .42f)
-                    star(point, (8f + 3f * sin(cycle * Math.PI * 2 + index).toFloat()).dp.toPx(), Gold)
-                }
-            }
+private fun GameOverScreen(game: Game, map: () -> Unit, retry: () -> Unit) {
+    Row(Modifier.widthIn(max = 950.dp).fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+        Canvas(Modifier.weight(1f).fillMaxHeight()) {
+            planet(Offset(size.width * .5f, size.height * 1.08f), size.minDimension * .45f, Color(0xFF9967E5))
+            astronaut(Offset(size.width * .5f, size.height * .48f), size.minDimension * .65f)
         }
-        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            Canvas(Modifier.weight(1f).fillMaxHeight()) {
-                val ground = Offset(size.width * .51f, size.height * .96f)
-                val radius = size.minDimension * .38f
-                rotate(bob * 3f, ground) {
-                    planet(ground, radius, if (victory) Color(0xFFFFBE42) else Color(0xFF9967E5))
-                }
-                val hero = Offset(size.width * .52f, size.height * .50f + bob * 4.dp.toPx())
-                astronaut(hero, size.minDimension * .68f, celebrating = !lost)
-                val ship = Offset(size.width * .17f, size.height * .70f - bob * 5.dp.toPx())
-                rotate(-27f + bob * 4f, ship) { rocket(ship, size.minDimension * .32f, 1f + bob * .1f) }
-                if (!lost) star(Offset(size.width * .84f, size.height * .24f),
-                    size.minDimension * (if (victory) .105f else .075f) * (1f + bob * .05f), Gold)
-                if (victory) trophy(hero + Offset(size.minDimension * .22f, -size.minDimension * .1f), size.minDimension * .20f)
-            }
-            Column(Modifier.weight(1.2f), horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(game.settings.greeting(if (lost) "Keep exploring" else if (victory) "Amazing" else "Great job"),
-                    modifier = Modifier.graphicsLayer { rotationZ = bob * .6f; scaleX = 1f + if (victory) bob * .018f else 0f; scaleY = scaleX },
-                    color = Gold, style = TitleStyle, fontSize = if (victory) 42.sp else 36.sp,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                Text(if (lost) "Let's try a new adventure!" else if (victory) "You completed the game!" else "Round ${game.round} Complete!",
-                    color = Color.White, fontSize = 23.sp, style = TitleStyle,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                if (!lost) Canvas(Modifier.fillMaxWidth(.76f).height(if (victory) 54.dp else 46.dp)) {
-                    val count = if (victory) 5 else 3
-                    repeat(count) { index ->
-                        val center = Offset(size.width * (index + .5f) / count,
-                            size.height * .5f + sin(cycle * Math.PI * 2 + index).toFloat() * 3.dp.toPx())
-                        star(center, size.height * .34f, Gold)
-                    }
-                }
-                if (game.phase == Phase.ROUND_COMPLETE) {
-                    SpaceButton("▶  Next Round", Green, onClick = next)
-                    Text("Ready? Press Next Round!", color = Pale, fontSize = 13.sp)
-                } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        SpaceButton("Main Menu", Blue, onClick = menu)
-                        SpaceButton("Play Again", Green, onClick = again)
-                    }
-                }
+        Column(Modifier.weight(1.2f), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("Game Over", color = Gold, fontSize = 38.sp, style = TitleStyle)
+            Text(game.settings.greeting("Keep exploring"), color = Color.White, fontSize = 25.sp)
+            Text("Level ${game.config.level} · Let's try again!", color = Pale, fontSize = 20.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                SpaceButton("Back to Map", Blue, onClick = map)
+                SpaceButton("Retry", Green, onClick = retry)
             }
         }
     }
 }
 
 @Composable
-private fun SpaceBackground() {
+private fun SpaceBackground(vibrant: Boolean = false) {
     val twinkle = rememberInfiniteTransition(label = "Starfield")
     val shimmer by twinkle.animateFloat(0f, 1f, infiniteRepeatable(tween(8000, easing = LinearEasing)), label = "Starlight")
     Canvas(Modifier.fillMaxSize()) {
@@ -517,6 +503,12 @@ private fun SpaceBackground() {
             val radius = size.height * .43f
             drawCircle(Brush.radialGradient(listOf((if (index % 2 == 0) Color(0xFF346ECD) else Color(0xFF8D43BF))
                 .copy(alpha = .11f), Color.Transparent), center, radius), radius, center)
+        }
+        if (vibrant) {
+            drawRect(Brush.radialGradient(listOf(Color(0xFF2459D4).copy(alpha = .45f), Color.Transparent),
+                Offset(size.width * .35f, size.height * .45f), size.width * .65f))
+            drawRect(Brush.radialGradient(listOf(Color(0xFFCF39E9).copy(alpha = .18f), Color.Transparent),
+                Offset(size.width * .8f, size.height * .3f), size.width * .4f))
         }
         val random = Random(71)
         repeat(230) { index ->
@@ -542,5 +534,253 @@ private fun SpaceBackground() {
             drawLine(Color(0xFF7ADCFF).copy(alpha = .28f), point - Offset(38.dp.toPx(), 8.dp.toPx()), point, 1.dp.toPx())
             drawCircle(Color(0xFFC0F0FF).copy(alpha = .6f), 1.2.dp.toPx(), point)
         }
+    }
+}
+
+// Stable irregular coordinates keep the route and its clickable planets aligned.
+private fun mapLevelY(index: Int) = .34f + Random(1307 + index * 97).nextFloat() * .36f
+private val MapPlanetColors = listOf(Color(0xFFFF6C27), Color(0xFF00F5C8), Color(0xFFFF42C4),
+    Color(0xFFAD65FF), Color(0xFFFFD600), Color(0xFF00CFFF), Color(0xFF8CFF36))
+
+@Composable
+private fun SpaceMap(state: AppState) {
+    val orbit = rememberInfiniteTransition(label = "Map orbit")
+    val motion by orbit.animateFloat(0f, 1f, infiniteRepeatable(tween(7000, easing = LinearEasing)), label = "Current planet aura")
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            SpaceButton("‹ Menu", Blue, onClick = { state.screen = Screen.MENU })
+            Text("Space Map", Modifier.weight(1f), color = Gold, style = TitleStyle, fontSize = 30.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text("Swipe to explore →", color = Pale)
+        }
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val mapHeight = maxHeight
+            val spacing = maxWidth / 6
+            val scroll = rememberScrollState()
+            val density = LocalDensity.current
+            LaunchedEffect(state.campaign.highestUnlockedLevel, maxWidth) {
+                scroll.scrollTo(with(density) { (spacing * (state.campaign.highestUnlockedLevel - 3).coerceAtLeast(0)).roundToPx() })
+            }
+            Box(Modifier.fillMaxSize().horizontalScroll(scroll).semantics { contentDescription = "Campaign route" }) {
+                Box(Modifier.width(spacing * CampaignConfig.levels.size).fillMaxHeight()) {
+                    Canvas(Modifier.fillMaxSize().semantics { contentDescription = "Current rocket at Level ${state.campaign.highestUnlockedLevel}" }) {
+                        val step = size.width / CampaignConfig.levels.size
+                        fun point(t: Float): Offset {
+                            val i = t.toInt()
+                            val fraction = t - i
+                            val smooth = fraction * fraction * (3f - 2f * fraction)
+                            return Offset(step * (t + .5f), size.height * (mapLevelY(i) + (mapLevelY(i + 1) - mapLevelY(i)) * smooth))
+                        }
+                        repeat(CampaignConfig.levels.size * 16 - 16) { i ->
+                            drawLine(Pale.copy(alpha = .45f), point(i / 16f), point((i + .55f) / 16f), 2.dp.toPx())
+                        }
+                        // Sparse scenery has its own positions, sizes and colours, independent of level nodes.
+                        val scenery = Random(918)
+                        repeat(CampaignConfig.levels.size / 2) { i ->
+                            val p = Offset(scenery.nextFloat() * size.width,
+                                size.height * (if (i % 3 == 0) .87f else .09f + scenery.nextFloat() * .10f))
+                            val radius = (8f + scenery.nextFloat() * 17f).dp.toPx()
+                            val color = MapPlanetColors[(i * 3 + 2) % MapPlanetColors.size]
+                            planet(p + Offset(0f, sin(motion * 6.28f + i) * 3.dp.toPx()), radius, color)
+                            if (i % 3 == 0) drawOval(color.copy(alpha = .5f), p - Offset(radius * 1.6f, radius * .35f),
+                                Size(radius * 3.2f, radius * .7f), style = Stroke(2.dp.toPx()))
+                        }
+                        repeat(CampaignConfig.levels.size) { i ->
+                            val p = point(i.toFloat())
+                            if (i + 1 == state.campaign.highestUnlockedLevel) {
+                                val angle = motion * Math.PI.toFloat() * 2f
+                                val ship = p + Offset(cos(angle) * 67.dp.toPx(), sin(angle) * 61.dp.toPx())
+                                rotate(motion * 360f + 90f, ship) {
+                                    rocket(ship, 42.dp.toPx(), .6f + .15f * sin(motion * 70f), enginesOn = true)
+                                }
+                            }
+                        }
+                    }
+                    CampaignConfig.levels.forEachIndexed { i, level ->
+                        val unlocked = state.campaign.canStart(level.level)
+                        val completed = state.campaign.isCompleted(level.level)
+                        val current = level.level == state.campaign.highestUnlockedLevel
+                        val nodeSize = if (current) 92.dp else 76.dp
+                        Column(Modifier.offset(x = spacing * i, y = mapHeight * mapLevelY(i) - nodeSize / 2)
+                            .width(spacing), horizontalAlignment = Alignment.CenterHorizontally) {
+                            val color = if (unlocked) MapPlanetColors[(i * 3) % MapPlanetColors.size] else Color(0xFF677493)
+                            Box(Modifier.size(nodeSize).semantics {
+                                contentDescription = "Level ${level.level}, ${if (completed) "completed" else if (unlocked) "unlocked" else "locked"}"
+                            }.clickable(enabled = unlocked) { state.start(level.level) }, contentAlignment = Alignment.Center) {
+                                Canvas(Modifier.fillMaxSize()) {
+                                    val center = Offset(size.width / 2, size.height / 2)
+                                    if (current) {
+                                        val pulse = .65f + .25f * sin(motion * 6.28f)
+                                        drawCircle(Brush.radialGradient(listOf(Gold.copy(alpha = pulse), Color(0xFFEE6AFF).copy(alpha = .25f), Color.Transparent), center, size.width * .65f), size.width * .65f, center)
+                                        drawCircle(Gold, size.minDimension * .47f, center, style = Stroke(3.dp.toPx()))
+                                        repeat(5) { spark ->
+                                            val angle = motion * 6.28f + spark * 6.28f / 5
+                                            star(center + Offset(cos(angle), sin(angle)) * size.width * .49f, 4.dp.toPx(), if (spark % 2 == 0) Gold else Color(0xFF88FFFF))
+                                        }
+                                    }
+                                    planet(center, size.minDimension * .40f, color, vivid = unlocked)
+                                    if (current) drawCircle(Color.White.copy(alpha = .25f * (.5f + .5f * sin(motion * 18.85f))),
+                                        size.minDimension * .40f, center)
+                                }
+                                Text(if (unlocked) level.level.toString() else "🔒", color = Color.White,
+                                    fontSize = 25.sp, style = TitleStyle)
+                                if (completed) Text("★", Modifier.align(Alignment.BottomCenter), color = Gold, fontSize = 22.sp)
+                            }
+                            Text("Level ${level.level}", color = if (unlocked) Color.White else Pale.copy(alpha = .6f), fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EnergyScene(game: Game, collection: Float, launch: Float = 0f) {
+    val collecting = game.phase == Phase.FEEDBACK && game.feedback == Feedback.CORRECT
+    val previous = game.correct - if (collecting) 1 else 0
+    val transfer = ((collection - .80f) / .12f).coerceIn(0f, 1f)
+    val energy = (previous + if (collecting) transfer else 0f) / game.config.requiredCorrectAnswers
+    val launching = game.phase == Phase.LEVEL_COMPLETE
+    Canvas(Modifier.fillMaxSize().semantics {
+        contentDescription = "Rocket energy: ${game.correct} of ${game.config.requiredCorrectAnswers}"
+        stateDescription = if (launching) "Full tank, launching" else if (collecting) "Collecting crystal" else "Landed rocket"
+    }) {
+        val ground = Offset(size.width * .50f, size.height * 1.38f)
+        planet(ground, size.height * .76f, Color(0xFF8466CC))
+        val width = minOf(size.height * .70f, 130.dp.toPx())
+        val joy = if (collecting) sin(collection * Math.PI.toFloat() * 12f) * (1f - collection) else 0f
+        val base = Offset(size.width * .5f, size.height * .43f)
+        val fuelTransfer = (launch / .25f).coerceIn(0f, 1f)
+        val rise = ((launch - .28f) / .17f).coerceIn(0f, 1f)
+        val loop = ((launch - .45f) / .35f).coerceIn(0f, 1f)
+        val departure = ((launch - .80f) / .20f).coerceIn(0f, 1f)
+        val angle = loop * Math.PI.toFloat() * 2f
+        val ship = base + Offset(joy * 3.dp.toPx(), -kotlin.math.abs(joy) * 2.dp.toPx()) + Offset(
+            (1f - cos(angle)) * size.width * .18f + departure * size.width * .45f +
+                if (launch in .25f.. .28f) sin(launch * 600f) * 3.dp.toPx() else 0f,
+            -rise * size.height * .13f - sin(angle) * size.height * .18f - departure * (size.height + width))
+        val heading = -90f + if (launch > .45f) loop * 360f + departure * 35f else joy * 3f
+        val tankSize = Size(width * .32f, width * .46f)
+        val tank = base + Offset(-width * .85f - tankSize.width / 2, width * .03f)
+        val tankCenter = tank + Offset(tankSize.width / 2, tankSize.height / 2)
+        if (launch > .25f) {
+            val engine = ship + Offset(0f, width * .46f)
+            drawCircle(Brush.radialGradient(listOf(Gold.copy(alpha = .7f), Color.Transparent), engine, width * .65f), width * .65f, engine)
+        }
+        rotate(heading, ship) { rocket(ship, width, 1f + .3f * sin(launch * 180f), enginesOn = launch > .25f) }
+        // The freestanding collection tank stays connected until the rocket launches.
+        if (!launching || launch < .28f) {
+            val inlet = base + Offset(-width * .16f, width * .17f)
+            val outlet = tank + Offset(tankSize.width, tankSize.height * .8f)
+            val hose = Path().apply {
+                moveTo(outlet.x, outlet.y)
+                cubicTo(outlet.x + width * .25f, outlet.y + width * .3f,
+                    inlet.x - width * .25f, inlet.y + width * .3f, inlet.x, inlet.y)
+            }
+            drawPath(hose, Navy, style = Stroke(10.dp.toPx()))
+            drawPath(hose, Color(0xFF57FBE2), style = Stroke(5.dp.toPx()))
+            if (launching && fuelTransfer < 1f) repeat(9) { i ->
+                val t = (fuelTransfer * 4f + i / 9f) % 1f
+                val v = 1f - t
+                val p = outlet * (v * v * v) + (outlet + Offset(width * .25f, width * .3f)) * (3f * v * v * t) +
+                    (inlet + Offset(-width * .25f, width * .3f)) * (3f * v * t * t) + inlet * (t * t * t)
+                drawCircle(Color.White, 2.dp.toPx(), p)
+            }
+            if (launching) drawCircle(Brush.radialGradient(listOf(Color(0xFF54FFE4).copy(alpha = fuelTransfer * .7f), Color.Transparent), base, width * .55f), width * .55f, base)
+        }
+        val tankEnergy = if (launching) 1f - fuelTransfer else energy
+        drawRoundRect(Color(0xFF153B65).copy(alpha = .72f), tank, tankSize, androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()))
+        drawRoundRect(Color(0xFF76C9ED), tank + Offset(-4.dp.toPx(), tankSize.height),
+            Size(tankSize.width + 8.dp.toPx(), 5.dp.toPx()), androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
+        val inner = tank + Offset(3.dp.toPx(), 3.dp.toPx())
+        val innerSize = Size(tankSize.width - 6.dp.toPx(), tankSize.height - 6.dp.toPx())
+        drawRect(Brush.verticalGradient(listOf(Color(0xFF8EFFF1), Color(0xFF0ABFC7))),
+            inner + Offset(0f, innerSize.height * (1f - tankEnergy)), Size(innerSize.width, innerSize.height * tankEnergy))
+        drawRoundRect(Pale, tank, tankSize, androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()), style = Stroke(2.dp.toPx()))
+        drawLine(Color.White.copy(alpha = .7f), tank + Offset(tankSize.width * .2f, tankSize.height * .12f),
+            tank + Offset(tankSize.width * .2f, tankSize.height * .78f), 2.dp.toPx())
+        repeat(4) { i ->
+            val y = tank.y + tankSize.height * (i + 1) / 5
+            drawLine(Pale.copy(alpha = .65f), Offset(tank.x + tankSize.width * .74f, y), Offset(tank.x + tankSize.width * .94f, y), 1.dp.toPx())
+        }
+        val count = game.config.requiredCorrectAnswers
+        fun crystalPosition(i: Int): Offset {
+            val t = (i + .5f) / count
+            return Offset(size.width * (.09f + .82f * t), size.height * (.77f + .09f * sin(i * 2.1f)))
+        }
+        for (i in previous until count) {
+            if (collecting && i == previous) continue
+            energyCrystal(crystalPosition(i), minOf(15.dp.toPx(), size.width / (count * 2.8f)))
+        }
+        // A permanent shoulder makes the collection arm clearly belong to the rocket.
+        val origin = ship + Offset(width * .24f, width * .16f)
+        var hand = origin + Offset(width * .16f, width * .08f)
+        if (collecting) {
+            val destination = crystalPosition(previous)
+            hand = when {
+                collection < .20f -> hand
+                collection < .48f -> origin + (destination - origin) * ((collection - .20f) / .28f)
+                collection < .55f -> destination
+                collection < .83f -> destination + (tankCenter - destination) * ((collection - .55f) / .28f)
+                else -> tankCenter + (origin - tankCenter) * ((collection - .83f) / .17f)
+            }
+            if (collection < .83f) {
+                val crystal = if (collection < .55f) destination else hand
+                val pulse = if (collection < .20f) (.5f + .5f * cos(collection / .20f * Math.PI * 6).toFloat()) else 1f
+                energyCrystal(crystal, (12f + 4f * pulse).dp.toPx())
+                if (collection < .20f) drawCircle(Color(0xFFBFFFF7).copy(alpha = .65f * pulse),
+                    (20f + 9f * pulse).dp.toPx(), crystal, style = Stroke(2.dp.toPx()))
+            }
+        }
+        if (!launching) {
+        val joint = origin + (hand - origin) * .50f + Offset(width * .10f, -width * .10f)
+        drawLine(Navy, origin, joint, 9.dp.toPx()); drawLine(Navy, joint, hand, 8.dp.toPx())
+        drawLine(Color(0xFFE7EAF2), origin, joint, 5.dp.toPx()); drawLine(Color(0xFFE7EAF2), joint, hand, 4.dp.toPx())
+        drawCircle(Color(0xFFFF855C), 6.dp.toPx(), origin)
+        drawCircle(Gold, 4.dp.toPx(), joint)
+        drawArc(Pale, 35f, 290f, false, hand - Offset(7.dp.toPx(), 7.dp.toPx()), Size(14.dp.toPx(), 14.dp.toPx()), style = Stroke(2.dp.toPx()))
+        }
+    }
+}
+
+@Composable
+private fun CompletionScreen(game: Game, map: () -> Unit) {
+    val flight = remember(game) { Animatable(0f) }
+    LaunchedEffect(game) {
+        delay(400)
+        flight.animateTo(1f, tween(8000, easing = LinearEasing))
+        delay(1800)
+        map()
+    }
+    Box(Modifier.fillMaxSize().semantics {
+        contentDescription = "Level ${game.config.level} complete"
+        stateDescription = when {
+            flight.value < .25f -> "Transferring fuel"
+            flight.value < .45f -> "Lifting off"
+            flight.value < .80f -> "Celebration loop"
+            else -> "Flying to the next planet"
+        }
+    }) {
+        EnergyScene(game, 1f, flight.value)
+        if (flight.value > .30f) Canvas(Modifier.fillMaxSize()) {
+            confetti(((flight.value - .30f) * 8f) % 1f, 100, seed = 23 + ((flight.value - .30f) * 8f).toInt())
+            repeat(4) { burst ->
+                val progress = ((flight.value - .38f - burst * .10f) / .25f).coerceIn(0f, 1f)
+                if (progress > 0f && progress < 1f) repeat(14) { ray ->
+                    val angle = ray * Math.PI.toFloat() * 2 / 14
+                    val center = Offset(size.width * (.17f + burst * .22f), size.height * (.3f + .13f * (burst % 2)))
+                    val direction = Offset(cos(angle), sin(angle))
+                    drawLine(MapPlanetColors[burst], center + direction * progress * size.height * .18f,
+                        center + direction * progress * size.height * .26f, (1f - progress) * 4.dp.toPx())
+                }
+            }
+            repeat(9) { index -> star(Offset(size.width * (index + .5f) / 9, size.height * (.32f + .14f * sin(index.toFloat()))), 12.dp.toPx(), Gold) }
+        }
+        Column(Modifier.align(Alignment.TopCenter), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(if (flight.value < .25f) "Fuelling up!" else if (flight.value < .45f) "Rocket ready!" else game.settings.greeting("Great job"), color = Gold, fontSize = 36.sp, style = TitleStyle)
+            Text("Level ${game.config.level} completed!", color = Color.White, fontSize = 24.sp)
+        }
+        if (flight.value >= 1f) SpaceButton("Back to Map", Green, Modifier.align(Alignment.BottomCenter).padding(16.dp), map)
     }
 }

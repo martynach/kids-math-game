@@ -35,14 +35,15 @@ internal fun DrawScope.star(center: Offset, radius: Float, color: Color, glow: B
     drawCircle(Color.White.copy(alpha = .7f), radius * .12f, center + Offset(-radius * .16f, -radius * .28f))
 }
 
-internal fun DrawScope.planet(center: Offset, radius: Float, color: Color) {
+internal fun DrawScope.planet(center: Offset, radius: Float, color: Color, vivid: Boolean = false) {
     if (radius <= .1f) return
     drawCircle(Brush.radialGradient(listOf(color.copy(alpha = .28f), Color.Transparent),
         center, radius * 1.35f), radius * 1.35f, center)
     val disk = Path().apply { addOval(androidx.compose.ui.geometry.Rect(center - Offset(radius, radius),
         center + Offset(radius, radius))) }
     clipPath(disk) {
-        drawCircle(Brush.radialGradient(listOf(Color(0xFFFFD893), color, Color(0xFF39266F)),
+        drawCircle(Brush.radialGradient(listOf(if (vivid) androidx.compose.ui.graphics.lerp(color, Color.White, .45f) else Color(0xFFFFD893), color,
+            if (vivid) androidx.compose.ui.graphics.lerp(color, Ink, .45f) else Color(0xFF39266F)),
             center + Offset(-radius * .48f, -radius * .62f), radius * 2f), radius, center)
         // Curved cloud bands and shaded craters give the same small illustration several personalities.
         repeat(3) { index ->
@@ -63,7 +64,7 @@ internal fun DrawScope.planet(center: Offset, radius: Float, color: Color) {
                 crater - Offset(r, r * .6f), Size(r * 2f, r * 1.25f), style = Stroke(radius * .025f))
             if (index % 3 == 0) drawCircle(color.copy(alpha = .6f), r * .35f, crater)
         }
-        drawCircle(Brush.radialGradient(listOf(Color.Transparent, Color(0xFF191950).copy(alpha = .55f)),
+        drawCircle(Brush.radialGradient(listOf(Color.Transparent, Color(0xFF191950).copy(alpha = if (vivid) .18f else .55f)),
             center + Offset(-radius * .6f, -radius * .6f), radius * 2f), radius, center)
     }
     drawCircle(Color(0xFFC1EDFF).copy(alpha = .45f), radius, center, style = Stroke(radius * .025f))
@@ -71,24 +72,26 @@ internal fun DrawScope.planet(center: Offset, radius: Float, color: Color) {
         Size(radius * 1.78f, radius * 1.78f), style = Stroke(radius * .035f))
 }
 
-internal fun DrawScope.rocket(center: Offset, width: Float, flame: Float = 1f) {
+internal fun DrawScope.rocket(center: Offset, width: Float, flame: Float = 1f, enginesOn: Boolean = true) {
     if (width <= .1f) return
     val x = center.x; val y = center.y
     drawOval(Color(0xFF020828).copy(alpha = .25f), Offset(x - width * .48f, y + width * .24f),
         Size(width * .95f, width * .16f))
-    val exhaust = Path().apply {
-        moveTo(x - width * .28f, y - width * .12f)
-        quadraticTo(x - width * .55f, y - width * .23f, x - width * (.82f + .14f * flame), y + width * .09f)
-        lineTo(x - width * .63f, y + width * .08f)
-        lineTo(x - width * .72f, y + width * .20f)
-        quadraticTo(x - width * .4f, y + width * .18f, x - width * .28f, y + width * .12f)
-        close()
+    if (enginesOn) {
+        val exhaust = Path().apply {
+            moveTo(x - width * .28f, y - width * .12f)
+            quadraticTo(x - width * .55f, y - width * .23f, x - width * (.82f + .14f * flame), y + width * .09f)
+            lineTo(x - width * .63f, y + width * .08f)
+            lineTo(x - width * .72f, y + width * .20f)
+            quadraticTo(x - width * .4f, y + width * .18f, x - width * .28f, y + width * .12f)
+            close()
+        }
+        drawPath(exhaust, Brush.linearGradient(listOf(Color(0xFFFFB62F), Color(0xFFFF6026)),
+            Offset(x - width, y), Offset(x, y)))
+        drawOval(Sunshine, Offset(x - width * (.67f + .06f * flame), y - width * .055f),
+            Size(width * .42f, width * .12f))
+        drawOval(Color(0xFFFFF5C4), Offset(x - width * .48f, y - width * .035f), Size(width * .2f, width * .07f))
     }
-    drawPath(exhaust, Brush.linearGradient(listOf(Color(0xFFFFB62F), Color(0xFFFF6026)),
-        Offset(x - width, y), Offset(x, y)))
-    drawOval(Sunshine, Offset(x - width * (.67f + .06f * flame), y - width * .055f),
-        Size(width * .42f, width * .12f))
-    drawOval(Color(0xFFFFF5C4), Offset(x - width * .48f, y - width * .035f), Size(width * .2f, width * .07f))
     val fins = Path().apply {
         moveTo(x - width * .27f, y - width * .09f)
         quadraticTo(x - width * .44f, y - width * .36f, x + width * .04f, y - width * .28f)
@@ -230,4 +233,22 @@ internal fun DrawScope.trophy(center: Offset, height: Float) {
     drawPath(cup, Brush.linearGradient(listOf(Color(0xFFFFF5AA), Sunshine, Color(0xFFFFA721)),
         center - Offset(height * .3f, 0f), center + Offset(height * .3f, 0f)))
     star(center + Offset(0f, -height * .2f), height * .12f, Color(0xFFFFF5AA), glow = false)
+}
+
+internal fun DrawScope.energyCrystal(center: Offset, radius: Float) {
+    if (radius <= 0f) return
+    drawCircle(Brush.radialGradient(listOf(Color(0xFF28E9FF).copy(alpha = .40f), Color.Transparent), center, radius * 2.5f), radius * 2.5f, center)
+    val shape = Path().apply {
+        moveTo(center.x, center.y - radius)
+        lineTo(center.x + radius * .65f, center.y - radius * .15f)
+        lineTo(center.x + radius * .45f, center.y + radius * .75f)
+        lineTo(center.x, center.y + radius)
+        lineTo(center.x - radius * .55f, center.y + radius * .5f)
+        lineTo(center.x - radius * .65f, center.y - radius * .1f)
+        close()
+    }
+    drawPath(shape, Brush.linearGradient(listOf(Color(0xFFDCFFFF), Color(0xFF35DDFF), Color(0xFF3975EE)), center - Offset(radius, radius), center + Offset(radius, radius)))
+    drawPath(shape, Color.White, style = Stroke(radius * .08f))
+    drawLine(Color.White.copy(alpha = .8f), center - Offset(0f, radius), center + Offset(radius * .10f, radius * .8f), radius * .07f)
+    drawLine(Color.White.copy(alpha = .7f), center - Offset(radius * .6f, radius * .1f), center + Offset(radius * .6f, -radius * .15f), radius * .07f)
 }
