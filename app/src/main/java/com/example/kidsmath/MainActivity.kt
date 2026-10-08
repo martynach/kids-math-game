@@ -639,12 +639,18 @@ private fun SpaceMap(state: AppState) {
 private fun EnergyScene(game: Game, collection: Float, launch: Float = 0f) {
     val collecting = game.phase == Phase.FEEDBACK && game.feedback == Feedback.CORRECT
     val previous = game.correct - if (collecting) 1 else 0
-    val transfer = ((collection - .80f) / .12f).coerceIn(0f, 1f)
+    val transfer = ((collection - .82f) / .18f).coerceIn(0f, 1f)
     val energy = (previous + if (collecting) transfer else 0f) / game.config.requiredCorrectAnswers
     val launching = game.phase == Phase.LEVEL_COMPLETE
     Canvas(Modifier.fillMaxSize().semantics {
         contentDescription = "Rocket energy: ${game.correct} of ${game.config.requiredCorrectAnswers}"
-        stateDescription = if (launching) "Full tank, launching" else if (collecting) "Collecting crystal" else "Landed rocket"
+        stateDescription = when {
+            launching -> "Full tank, launching"
+            !collecting -> "Landed rocket"
+            collection < .64f -> "Collecting crystal"
+            collection < .82f -> "Converting crystal"
+            else -> "Pouring crystal fuel"
+        }
     }) {
         val ground = Offset(size.width * .50f, size.height * 1.38f)
         planet(ground, size.height * .76f, Color(0xFF8466CC))
@@ -663,7 +669,11 @@ private fun EnergyScene(game: Game, collection: Float, launch: Float = 0f) {
         val heading = -90f + if (launch > .45f) loop * 360f + departure * 35f else joy * 3f
         val tankSize = Size(width * .32f, width * .46f)
         val tank = base + Offset(-width * .85f - tankSize.width / 2, width * .03f)
-        val tankCenter = tank + Offset(tankSize.width / 2, tankSize.height / 2)
+        val machine = tank + Offset(tankSize.width / 2, -width * .35f)
+        val processing = collecting && collection in .64f.. .82f
+        val pouring = collecting && collection >= .82f
+        val machinePulse = if (processing) sin((collection - .64f) * 160f) else 0f
+        val machineCenter = machine + Offset(machinePulse * 1.5.dp.toPx(), 0f)
         if (launch > .25f) {
             val engine = ship + Offset(0f, width * .46f)
             drawCircle(Brush.radialGradient(listOf(Gold.copy(alpha = .7f), Color.Transparent), engine, width * .65f), width * .65f, engine)
@@ -704,33 +714,83 @@ private fun EnergyScene(game: Game, collection: Float, launch: Float = 0f) {
             val y = tank.y + tankSize.height * (i + 1) / 5
             drawLine(Pale.copy(alpha = .65f), Offset(tank.x + tankSize.width * .74f, y), Offset(tank.x + tankSize.width * .94f, y), 1.dp.toPx())
         }
+        // The converter has a transparent chamber: the delivered gem stays visible as it spins down.
+        val machineRadius = width * .19f
+        if (processing || pouring) drawCircle(Brush.radialGradient(listOf(Gold.copy(alpha = .65f),
+            Color(0xFFFF4DD8).copy(alpha = .25f), Color.Transparent), machineCenter, machineRadius * 2.3f), machineRadius * 2.3f, machineCenter)
+        drawRoundRect(Navy, machineCenter - Offset(machineRadius * 1.3f, machineRadius),
+            Size(machineRadius * 2.6f, machineRadius * 2), androidx.compose.ui.geometry.CornerRadius(10.dp.toPx()))
+        drawRoundRect(Brush.linearGradient(listOf(Color(0xFFFF74CC), Color(0xFF9C50FF), Color(0xFF416DFB))),
+            machineCenter - Offset(machineRadius * 1.2f, machineRadius * .9f),
+            Size(machineRadius * 2.4f, machineRadius * 1.8f), androidx.compose.ui.geometry.CornerRadius(9.dp.toPx()))
+        drawCircle(Navy, machineRadius * .77f, machineCenter)
+        drawCircle(if (processing) Gold else Color(0xFF66F8FF), machineRadius * .78f, machineCenter, style = Stroke(2.dp.toPx()))
+        rotate(if (processing) (collection - .64f) * 3600f else 0f, machineCenter) {
+            repeat(4) { blade ->
+                rotate(blade * 90f, machineCenter) {
+                    drawArc(Color(0xFF77FFF0).copy(alpha = if (processing) .9f else .35f), 0f, 65f, false,
+                        machineCenter - Offset(machineRadius * .55f, machineRadius * .55f), Size(machineRadius * 1.1f, machineRadius * 1.1f),
+                        style = Stroke(3.dp.toPx()))
+                }
+            }
+        }
+        repeat(3) { light ->
+            drawCircle(if (processing && (collection * 45).toInt() % 3 == light) Color.White else Gold,
+                2.dp.toPx(), machineCenter + Offset((light - 1) * machineRadius * .65f, -machineRadius * .8f))
+        }
+        val nozzle = machineCenter + Offset(0f, machineRadius * 1.15f)
+        drawLine(Color(0xFF9FDEFF), machineCenter + Offset(0f, machineRadius * .75f), nozzle, 7.dp.toPx())
+        if (pouring) {
+            val surface = tank + Offset(tankSize.width / 2, 3.dp.toPx() + innerSize.height * (1f - tankEnergy))
+            drawLine(Color(0xFF04D8C3), nozzle, surface, 7.dp.toPx())
+            drawLine(Color(0xFFCBFFF7), nozzle, surface, 3.dp.toPx())
+            repeat(5) { drop ->
+                val t = ((collection - .82f) * 22f + drop / 5f) % 1f
+                drawCircle(Color.White, 2.dp.toPx(), nozzle + (surface - nozzle) * t)
+            }
+            repeat(5) { splash ->
+                val angle = splash * Math.PI.toFloat() / 4f
+                val reach = (5f + 3f * sin(collection * 100f + splash)).dp.toPx()
+                drawLine(Color(0xFF8CFFF0), surface, surface + Offset(cos(angle), -sin(angle)) * reach, 2.dp.toPx())
+            }
+        }
         val count = game.config.requiredCorrectAnswers
+        val crystalRadius = minOf(24.dp.toPx(), size.width / (count * 2.8f))
         fun crystalPosition(i: Int): Offset {
             val t = (i + .5f) / count
             return Offset(size.width * (.09f + .82f * t), size.height * (.77f + .09f * sin(i * 2.1f)))
         }
         for (i in previous until count) {
             if (collecting && i == previous) continue
-            energyCrystal(crystalPosition(i), minOf(15.dp.toPx(), size.width / (count * 2.8f)))
+            energyCrystal(crystalPosition(i), crystalRadius)
         }
         // A permanent shoulder makes the collection arm clearly belong to the rocket.
         val origin = ship + Offset(width * .24f, width * .16f)
-        var hand = origin + Offset(width * .16f, width * .08f)
+        val restingHand = origin + Offset(width * .16f, width * .08f)
+        var hand = restingHand
         if (collecting) {
             val destination = crystalPosition(previous)
             hand = when {
-                collection < .20f -> hand
-                collection < .48f -> origin + (destination - origin) * ((collection - .20f) / .28f)
-                collection < .55f -> destination
-                collection < .83f -> destination + (tankCenter - destination) * ((collection - .55f) / .28f)
-                else -> tankCenter + (origin - tankCenter) * ((collection - .83f) / .17f)
+                collection < .15f -> hand
+                collection < .36f -> restingHand + (destination - restingHand) * ((collection - .15f) / .21f)
+                collection < .42f -> destination
+                collection < .64f -> destination + (machine - destination) * ((collection - .42f) / .22f)
+                collection < .80f -> machine + (restingHand - machine) * ((collection - .64f) / .16f)
+                else -> restingHand
             }
-            if (collection < .83f) {
-                val crystal = if (collection < .55f) destination else hand
-                val pulse = if (collection < .20f) (.5f + .5f * cos(collection / .20f * Math.PI * 6).toFloat()) else 1f
-                energyCrystal(crystal, (12f + 4f * pulse).dp.toPx())
-                if (collection < .20f) drawCircle(Color(0xFFBFFFF7).copy(alpha = .65f * pulse),
-                    (20f + 9f * pulse).dp.toPx(), crystal, style = Stroke(2.dp.toPx()))
+            if (collection < .82f) {
+                val crystal = when {
+                    collection < .42f -> destination
+                    collection < .64f -> hand
+                    else -> machineCenter
+                }
+                val pulse = if (collection < .15f) (.5f + .5f * cos(collection / .15f * Math.PI * 6).toFloat()) else 1f
+                val dissolve = if (collection < .70f) 1f else (1f - (collection - .70f) / .12f).coerceIn(0f, 1f)
+                rotate(if (processing) (collection - .64f) * 2200f else 0f, crystal) {
+                    energyCrystal(crystal, crystalRadius * (.9f + .1f * pulse) * dissolve)
+                }
+                if (collection < .15f) drawCircle(Gold.copy(alpha = .8f * pulse),
+                    crystalRadius * (1.4f + .3f * pulse), crystal, style = Stroke(2.dp.toPx()))
             }
         }
         if (!launching) {

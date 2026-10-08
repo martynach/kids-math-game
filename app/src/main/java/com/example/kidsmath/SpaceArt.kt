@@ -247,8 +247,9 @@ internal fun DrawScope.energyCrystal(center: Offset, radius: Float) {
         lineTo(center.x - radius * .65f, center.y - radius * .1f)
         close()
     }
-    drawPath(shape, Brush.linearGradient(listOf(Color(0xFFDCFFFF), Color(0xFF35DDFF), Color(0xFF3975EE)), center - Offset(radius, radius), center + Offset(radius, radius)))
-    drawPath(shape, Color.White, style = Stroke(radius * .08f))
+    drawPath(shape, Ink, style = Stroke(radius * .26f))
+    drawPath(shape, Brush.linearGradient(listOf(Color(0xFFF4FFFF), Color(0xFF00FFF0), Color(0xFF007AFF)), center - Offset(radius, radius), center + Offset(radius, radius)))
+    drawPath(shape, Sunshine, style = Stroke(radius * .12f))
     drawLine(Color.White.copy(alpha = .8f), center - Offset(0f, radius), center + Offset(radius * .10f, radius * .8f), radius * .07f)
     drawLine(Color.White.copy(alpha = .7f), center - Offset(radius * .6f, radius * .1f), center + Offset(radius * .6f, -radius * .15f), radius * .07f)
 }

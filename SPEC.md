@@ -561,3 +561,5 @@ The main goal is a polished local game with:
 - a satisfying rocket launch after completing each Level.
 
 Visual refinement: correct-answer feedback lasts 2.6 seconds with fast confetti showers, sparkling stars and a gentle rocket wiggle while the collection arm remains slow. The crystal tank stands beside the rocket on a small base and connects through a hose. Unlocked map planets use vivid colours; the current planet is larger, pulses, and has an orbiting rocket. Locked planets retain their muted appearance and locks.
+
+Crystal collection refinement: collectible gems are larger with bright turquoise facets and a gold outline. The arm delivers each gem into a colourful converter above the freestanding tank. The visible gem spins and dissolves inside the glowing, vibrating chamber before a visible liquid stream pours through its nozzle into the tank. Tank fill follows the pour rather than the gem vanishing above it; the full feedback sequence remains 2.6 seconds.
