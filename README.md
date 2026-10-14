@@ -42,9 +42,9 @@ The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. Test 
 
 **Start Game → Space Map → selected level → Level Complete / launch → Space Map**.
 
-`CampaignConfig.TOTAL_LEVELS` controls campaign size (initially 30). `DEFAULT_REQUIRED_CORRECT_ANSWERS` is temporarily 4 for faster user testing (set it back to 10 for the full practice length); change entries in `CampaignConfig.levels` to supply different `LevelConfig.requiredCorrectAnswers` values per level. Completion, crystals, tank energy, and the HUD use that configuration. Levels have no question timer and no rounds.
+`CampaignConfig.TOTAL_LEVELS` controls campaign size (initially 30). `DEFAULT_REQUIRED_CORRECT_ANSWERS` is temporarily 4 for faster user testing (future practice lengths remain configurable); change entries in `CampaignConfig.levels` to supply different `LevelConfig.requiredCorrectAnswers` values per level. Completion, crystals, tank energy, and the HUD use that configuration. Levels have no question timer and no rounds.
 
-The rocket stays landed while questions are answered. A correct answer animates the mechanical arm reaching a crystal, grasping it, returning it to the tank, transferring energy, and retracting. A wrong answer removes one of three lives while preserving energy. Game Over offers Retry and Back to Map. A full tank triggers engine startup and a visible upward flight, then a celebration and return to the map. Only Exit in the main menu finishes the activity.
+The rocket stays landed while questions are answered. A correct answer animates the mechanical arm reaching a crystal, grasping it, delivering it to the converter above the freestanding tank, dissolving it, pouring energy into the tank, and retracting. Both correct and wrong feedback last 2.6 seconds. A wrong answer removes one of three lives while preserving energy. Game Over offers Retry and Back to Map. A full tank triggers fuel transfer through the hose, engine startup, lift-off, a celebratory loop and departure with confetti/starbursts, then returns to the map after approximately 10 seconds. Only Exit in the main menu finishes the activity.
 
 Completing the highest unlocked level unlocks exactly the next configured level. Earlier levels remain replayable; replay never reduces or advances unrelated progress. Final-level completion is recorded without unlocking an extra level. Settings and progress persist independently; Reset Progress requires confirmation and preserves name, operations, and MIN/MAX. Settings Back discards unsaved edits. The keypad stays in one landscape row and uses no system keyboard.
 
@@ -72,6 +72,12 @@ Free starts with 2 missions. Each unlocked level start, including Retry, durably
 
 Plan switching is a persisted development mock and never opens billing or takes payment. Premium initially enables unlimited attempts and offers optional parental limits. Campaign regression tests explicitly activate mock Premium so that unlocking many levels does not bypass or accidentally test the Free allowance.
 
-Development Settings supports local Free/Premium switching. Premium defaults to unlimited attempts; custom limits accept positive attempts and rest duration (1–8760 hours). Free and Premium usage and cooldowns persist independently. Toggling unlimited preserves custom values and usage. Changing allowance starts a fresh Premium cycle; changing duration applies to the next cooldown. Campaign levels require 4 correct answers and retain 3 lives.
+### Settings and Premium parental limits
 
-Settings uses one Save Settings button for player name, math options, plan and parental limits. Edits remain a local draft until saved; Back discards all edits. Save validates the form, persists it, opens the Space Map and shows a short Settings saved confirmation. Reset Progress remains a separate confirmed action.
+Settings uses cohesive dark Space Pass styling and scrolls in landscape. A single `Save Settings` button stays below the scrolling form and saves name, math options, selected plan and play limits. It opens the Space Map and displays a short `Settings saved` toast. Back discards all draft changes. Reset Progress remains a separate confirmed action and preserves plan, usage and play limits.
+
+Free/Premium selection is a development mock and takes effect only after Save Settings. Premium defaults to Unlimited attempts ON. The Premium-only PLAY LIMITS section disables custom fields while Unlimited is on; otherwise it accepts positive whole attempts and 1–8760 whole rest hours (defaults: 5 attempts / 1 hour). Active invalid inputs disable Save.
+
+Free and Premium custom usage/cooldowns persist independently. Saved Unlimited Premium bypasses cooldowns and consumes no attempts. Switching plans or toggling Unlimited preserves custom values and usage. A changed custom allowance starts a fresh Premium cycle when saved; a changed rest duration alone applies to the next cooldown and preserves any active rest. Saving unchanged values does not reset attempts.
+
+With 5 custom attempts and a 1-hour rest, the fifth start begins the cooldown, the sixth is blocked, and expiry restores five attempts. See `SPEC.md` sections 3 and 26 for the complete save, validation and transition rules.

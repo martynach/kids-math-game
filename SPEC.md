@@ -65,7 +65,17 @@ Default settings:
 
 Settings must persist locally.
 
-Leaving Settings without saving must preserve the previously saved values.
+### Appearance and saving
+
+The entire Settings screen uses the same dark navy/purple Space Adventure styling as the Free/Premium cards: rounded panels, subtle borders/glows, readable text and dark input fields. Use the three-panel Space Pass settings mockup as a visual reference, while following this specification for behavior. Keep the screen usable in landscape and scroll content that exceeds the available height.
+
+One `Save Settings` button, outside the scrolling content, saves player name, operations, MIN/MAX, selected plan, Unlimited attempts and custom play-limit values. There is no separate Save play limits button. Plan selection and the unlimited toggle edit the draft; they do not immediately change persisted settings or gameplay rules.
+
+Disable Save when the math range is invalid or when active Premium custom limits are invalid. Invalid inactive custom fields must not prevent saving Free or unlimited Premium; retain the previously saved valid custom value for each invalid field. Preserve valid custom values when toggling Unlimited on/off or selecting another plan.
+
+After saving, open the Space Map and show a short `Settings saved` toast. Do not require dismissal of an additional confirmation dialog. Saving Settings does not start gameplay or consume an attempt.
+
+Leaving Settings with Back (including Android Back) discards all unsaved edits, including the selected plan and play limits. Back returns to the rest screen if Settings was opened there; otherwise it returns to the main menu. Successfully saving always opens the map.
 
 ### Reset Progress
 
@@ -88,7 +98,8 @@ Reset should be visually presented as a destructive action.
 Reset Progress resets campaign progress only. It must NOT reset:
 - player name,
 - selected operations,
-- MIN/MAX settings.
+- MIN/MAX settings,
+- selected plan, custom play limits, remaining attempts and cooldown timestamps.
 
 After reset:
 - Level 1 is unlocked,
@@ -174,7 +185,7 @@ A completed level:
 
 #### Highest unlocked level
 The highest currently unlocked level:
-- is clearly highlighted,
+- is larger, pulses and has an orbiting rocket; unlocked planets use vivid colours while locked planets remain muted,
 - is playable,
 - has the player's rocket positioned at or near it.
 
@@ -221,7 +232,7 @@ A Level is not divided into artificial halves or multiple rounds.
 
 The child lands on a planet and must collect enough energy to prepare the rocket for the journey to the next destination.
 
-The rocket contains one visible energy tank.
+The rocket is charged from one visible, freestanding collection tank beside it, on a small base and connected to the rocket by a hose.
 
 The tank should be visible or partially transparent so that the child can clearly see its energy level increasing.
 
@@ -229,11 +240,11 @@ The tank should be visible or partially transparent so that the child can clearl
 
 For now, every Level requires:
 
-`4 correct answers` (temporary testing configuration; normal practice target: 10)
+`4 correct answers` (current testing configuration; any future practice target remains configurable)
 
 to complete.
 
-However, 10 must not be treated as a permanent rule.
+Neither 4 nor 10 is a permanent rule. `CampaignConfig.DEFAULT_REQUIRED_CORRECT_ANSWERS` currently supplies 4 to all configured levels.
 
 The required number of correct answers must be configurable per level.
 
@@ -241,7 +252,7 @@ For example:
 
 `LevelConfig(level = 1, requiredCorrectAnswers = 10)`
 
-For the initial version, all levels may use:
+In the current testing configuration, every campaign level uses:
 
 `requiredCorrectAnswers = 4` (temporary testing configuration)
 
@@ -253,7 +264,7 @@ The architecture must allow future configurations such as:
 
 without changing the fundamental gameplay logic.
 
-The UI must also not assume that exactly 10 progress steps/crystals always exist.
+The HUD, crystal count, tank filling and completion animation must use the current level configuration. Wrong answers do not count toward the target. The correct-answer target is independent of the Space Pass allowance: four correct answers complete a level, while two Free starts exhaust its allowance.
 
 ## 10. Rocket Energy and Crystals
 
@@ -272,6 +283,8 @@ After every correct answer:
 6. the visible energy level in the tank increases,
 7. Level progress increases,
 8. the next math question is presented.
+
+Collectible gems are large, with bright turquoise facets and a gold outline. The arm delivers a gem into a colourful converter above the freestanding tank. The visible gem spins and dissolves in the glowing, vibrating chamber, then a visible liquid stream pours through its nozzle into the tank. The tank fill follows the pour. The full feedback sequence lasts 2.6 seconds, with fast confetti, sparkling stars and a gentle rocket wiggle while the collection arm moves slowly.
 
 The animation should be visually satisfying but short enough that repeated math practice remains fluid.
 
@@ -399,6 +412,12 @@ Do not use:
 - overly negative feedback.
 
 A subtle shake/error pulse is acceptable.
+
+### Leaving an active attempt
+
+The gameplay Map button or Android Back pauses an active attempt and opens `Return to Space Map?`. `Keep Playing` resumes the same question, lives, energy and remaining feedback duration, without consuming another attempt. Confirming `Space Map` discards the active attempt's energy and returns to the map; unlocked campaign progress and the consumed Space Pass attempt remain unchanged. Game Over and completion can return to the map directly.
+
+Active question, lives and energy are in-memory session state; an interrupted attempt is not restored after process death. Campaign progress, settings and consumed attempts/cooldown timestamps remain persisted.
 
 ## 18. Level Completion
 
@@ -560,25 +579,66 @@ The main goal is a polished local game with:
 - visible rocket-energy progression,
 - a satisfying rocket launch after completing each Level.
 
-Visual refinement: correct-answer feedback lasts 2.6 seconds with fast confetti showers, sparkling stars and a gentle rocket wiggle while the collection arm remains slow. The crystal tank stands beside the rocket on a small base and connects through a hose. Unlocked map planets use vivid colours; the current planet is larger, pulses, and has an orbiting rocket. Locked planets retain their muted appearance and locks.
+## 26. Space Pass — development/testing
 
-Crystal collection refinement: collectible gems are larger with bright turquoise facets and a gold outline. The arm delivers each gem into a colourful converter above the freestanding tank. The visible gem spins and dissolves inside the glowing, vibrating chamber before a visible liquid stream pours through its nozzle into the tank. Tank fill follows the pour rather than the gem vanishing above it; the full feedback sequence remains 2.6 seconds.
+### Separate configuration values
 
+Free is the default plan. `SpacePassConfig` centralizes:
+- Free allowance: exactly **2 game attempts**.
+- Free rest: **5 minutes**, retaining the short testing cooldown.
+- Premium custom defaults: **5 attempts** and **1 hour** of rest.
+- Maximum custom rest: **8760 whole hours**.
 
-## 26. Space Pass — development mock
+These values are separate from `CampaignConfig.DEFAULT_REQUIRED_CORRECT_ANSWERS` (currently **4**). Do not scatter them through UI or gameplay code. The Free cooldown is triggered by allowance exhaustion, never by a calendar-day boundary.
 
-Free is the default plan. `SpacePassConfig` centralizes the allowance (2 attempts) and cooldown (5 minutes for development, changeable later without rewriting the rules). This is an exhaustion cooldown, never a calendar-day limit.
+### When attempts are consumed
 
-An attempt is charged and durably stored only when an unlocked level actually starts. Completion, Game Over, leaving, or killing the process never refunds it or charges it again. Retry is a new start and passes through the same check. Menu, Settings, map browsing, locked levels, and completion screens do not consume attempts.
+Charge and durably store one attempt only when an unlocked level actually starts. Selecting a playable map node starts gameplay; map browsing and locked nodes do not. Retry and replay of an unlocked level use the same start check and each consume one attempt under the active limited plan. Compose recomposition must not consume another attempt.
 
-Starting the last available attempt stores `cooldownEnd = now + configured cooldown`. The active attempt may continue. Until that timestamp no further gameplay or Retry starts. At expiry restore the full allowance and clear the timestamp, including after process death and while the app remains open. Persist plan and allowance independently from campaign and math settings. Reset Progress must not change Space Pass.
+Completing a level, reaching Game Over, leaving gameplay or killing the app does not refund attempts or charge an additional attempt. Starting the final available attempt stores an epoch cooldown-end timestamp. That active attempt may finish normally; subsequent starts are blocked until expiry. At expiry restore the full active plan allowance and clear its timestamp, including after restart and while the app stays open.
 
-Blocked starts open a calm rest screen with a sleeping astronaut, parked rocket, Zzz, the messages “Great space training today!” and “Come back later for more missions!”, a live minutes/seconds countdown, Back to map, and a secondary parent-oriented Settings hint. On expiry show that missions are available again and let the player return to the map without restarting.
+### Development plan selection
 
-Settings preserves name, operations, MIN/MAX and Reset Progress. A separated SPACE PASS section shows Free and Premium cards. Free displays the configured allowance and cooldown and marks the current plan. Premium displays “Custom play limits”, “Unlimited by default”, and “More space adventures!”. Switch to Premium activates and persists a local mock Premium entitlement immediately; Unlimited attempts is enabled by default. No billing, payment, login, network, or Google Play integration is included.
+Settings contains Free and Premium cards, identifies the selected draft plan and offers `Switch to Premium` / `Switch to Free`. These are development/testing controls, clearly labelled as a local mock with no payment. Selecting a plan takes effect only after the shared `Save Settings` action described in section 3.
 
-Premium PLAY LIMITS supports an unlimited toggle and saved custom attempts/rest hours. Custom controls are inactive while unlimited is on. Both plans can be selected directly from Settings for development/testing.
+Persist the selected plan across restarts. Switching plans preserves campaign progress, name and math settings. Free and Premium custom usage/cooldowns are independent: returning to Free uses its saved allowance and any unexpired Free cooldown. Saved unlimited Premium ignores both limited-plan restrictions. Returning to Premium preserves its previously configured unlimited/custom selection; do not force Unlimited back on each time.
 
-Development Settings supports local Free/Premium switching. Premium defaults to unlimited attempts; custom limits accept positive attempts and rest duration (1–8760 hours). Free and Premium usage and cooldowns persist independently. Toggling unlimited preserves custom values and usage. Changing allowance starts a fresh Premium cycle; changing duration applies to the next cooldown. Campaign levels require 4 correct answers and retain 3 lives.
+No real billing, subscriptions, purchase verification, Google Play integration, login or network services are implemented. Keep this mock easy to replace or disable when monetization is introduced.
 
-Settings uses one Save Settings button for player name, math options, plan and parental limits. Edits remain a local draft until saved; Back discards all edits. Save validates the form, persists it, opens the Space Map and shows a short Settings saved confirmation. Reset Progress remains a separate confirmed action.
+### Premium-only PLAY LIMITS
+
+Show this section only when Premium is selected in the Settings draft. Use a rounded dark space-themed panel and the same typography, spacing and controls as the plan cards.
+
+`Unlimited attempts` is ON by default. Unlimited play consumes no attempts and applies no cooldown. Show `Your child can play without limits.` and disable the custom fields visually and functionally.
+
+When Unlimited is OFF, show `Custom limit` and enable:
+- `Attempts before rest`: a positive whole number representable as a Kotlin Int.
+- `Rest duration (hours)`: a whole number from 1 to `SpacePassConfig.MAX_REST_HOURS` (currently 8760).
+
+Reject blank, non-integer, zero, negative and overflowing active custom values. Save custom values locally and restore them on reopening Settings or restarting the app. Toggling Unlimited or switching plans preserves saved custom values and usage.
+
+For a saved Premium limit of 5 attempts / 1 hour, five starts are allowed; the fifth starts the one-hour cooldown. The sixth start is blocked. After expiry another five attempts become available. Successful completion does not replenish the allowance.
+
+When saving changes:
+- A changed custom attempt allowance starts a fresh Premium cycle with the new full allowance and clears its old custom cooldown.
+- Changing rest duration alone preserves remaining attempts and an already running cooldown; the new duration applies to the next exhaustion.
+- Toggling Unlimited alone preserves the custom allowance, usage and cooldown. An existing cooldown may expire normally while another plan or Unlimited is active.
+- Saving unchanged settings does not reset usage or extend cooldowns.
+
+### Persistence and reset isolation
+
+Persist Free remaining attempts and cooldown, Premium remaining attempts and cooldown, Premium custom values, unlimited selection and selected plan in local Space Pass storage. Commit consumption before navigating into gameplay, so restarting cannot refund an attempt. Use persistent epoch timestamps rather than only an in-memory countdown.
+
+Reset Progress changes only campaign progress, including final-level completion. It does not reset Space Pass or mathematical/player settings.
+
+### No attempts left
+
+Blocked starts open the existing calm rest screen: sleeping astronaut, parked rocket, Zzz, `Great space training today!`, `Come back later for more missions!`, remaining cooldown, `Back to map` and a parent-oriented Settings hint.
+
+The countdown uses the active plan's timestamp and updates while the app is open. Display minutes/seconds for short rests and hours/minutes for longer rests. On expiry show that missions are available again and allow return to the map without restarting. Never interrupt an already running attempt.
+
+## 27. Behavioral verification
+
+Focused automated tests should cover question ranges/operations/repetition, configurable energy and lives, campaign unlocking/replay/final-level boundaries, persistence and reset isolation. Space Pass tests should cover two Free starts, five Premium custom starts followed by a blocked sixth, exact expiry, independent plan usage, Unlimited toggling, invalid limits and restart persistence.
+
+Settings UI regression tests should save the whole form, return to the map, reopen Settings and successfully edit/save custom limits again. Verify that Back discards draft changes, inactive controls are disabled, and saving or recomposition does not consume attempts. Build and run relevant tests after implementation changes; use an available emulator for affected flows.

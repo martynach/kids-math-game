@@ -30,7 +30,8 @@ It must be straightforward to change:
 - total campaign level count,
 - required correct answers per level,
 - future per-level difficulty parameters,
-- future timer parameters.
+- future timer parameters,
+- Free attempts/cooldown and Premium custom defaults/rest bounds.
 
 A simple `LevelConfig`-style model is appropriate.
 
@@ -54,7 +55,7 @@ Rules:
 - Replaying an earlier level never reduces progress.
 - Locked levels cannot start.
 - Reset Progress resets campaign progress only.
-- Reset Progress must not erase player name or math settings.
+- Reset Progress must not erase player name, math settings, Space Pass plan, limits, usage or cooldowns.
 - Completing the final configured level must never unlock a nonexistent level.
 
 ## Game logic
@@ -84,6 +85,16 @@ Do not silently invent product behavior when the specification is genuinely ambi
 - The gameplay keypad must fit in one horizontal row on a typical landscape phone.
 - Backspace and Confirm must be spatially separated.
 - Do not use the Android system keyboard during gameplay.
+
+## Settings and Space Pass
+- Use SPEC.md sections 3 and 26 as the source of truth for saving and plan transitions.
+- Keep one Save Settings action for the whole form; plan and limit controls edit a draft until saved.
+- Saving opens the Space Map with a short confirmation; Back discards unsaved changes.
+- Keep Settings scrollable in landscape and preserve its dark Space Adventure styling.
+- Consume attempts once when unlocked gameplay starts, including Retry and replay.
+- Persist usage and cooldown-end timestamps before gameplay; do not interrupt the last allowed attempt.
+- Keep Free and Premium custom usage independent; Unlimited Premium bypasses restrictions.
+- Keep the development mock labelled and free of real billing integrations.
 
 ## Animation
 Prefer lightweight native Jetpack Compose drawing and animation APIs.
@@ -134,6 +145,16 @@ Test that:
 - already collected energy remains after a wrong answer,
 - reaching the configured number of correct answers completes the level,
 - logic does not assume `requiredCorrectAnswers` is always 10.
+
+### Settings and play limits
+Test that:
+- saving the full form persists math, player, plan and limits and opens the map,
+- reopening Settings allows another successful limit edit/save,
+- Back discards all unsaved edits and inactive limit controls are disabled,
+- Free and custom Premium exhaustion, expiry and restart persistence work,
+- plan switching and Unlimited preserve independent usage and custom values,
+- active invalid limits prevent saving,
+- saving unchanged values and recomposition never consume or refund attempts.
 
 Avoid tests that merely verify framework behavior or trivial UI implementation details.
 
