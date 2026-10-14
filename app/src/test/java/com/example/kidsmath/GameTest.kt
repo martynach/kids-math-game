@@ -72,7 +72,7 @@ class GameTest {
         assertEquals(progress, progress.complete(CampaignConfig.levels.size))
     }
     @Test fun configurableEnergyAndLives() {
-        for (required in listOf(1, 5, 7, 12)) {
+        for (required in listOf(1, 4, 5, 7, 12)) {
             val game = Game(Settings(), LevelConfig(1, required))
             var now = 0L
             repeat(required) { index ->

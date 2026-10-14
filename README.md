@@ -36,7 +36,7 @@ The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. Test 
 - `CampaignStore.kt`: separate `campaign` SharedPreferences storing the highest unlocked level and final-level completion.
 - `SpaceArt.kt`: native Canvas rocket, crystals, astronaut, planets, stars, and confetti.
 - `GameTest.kt`: generator constraints, input/pause, lives/energy, configurable level lengths, unlocking/replay, and final-level boundaries.
-- `AnswerButtonTest.kt`: real keypad, map, ten-answer completion, replay, persistence/reset, and retry/navigation flows.
+- `AnswerButtonTest.kt`: real keypad, map, configured-length completion, replay, persistence/reset, and retry/navigation flows.
 
 ## Campaign flow
 
@@ -48,7 +48,7 @@ The rocket stays landed while questions are answered. A correct answer animates 
 
 Completing the highest unlocked level unlocks exactly the next configured level. Earlier levels remain replayable; replay never reduces or advances unrelated progress. Final-level completion is recorded without unlocking an extra level. Settings and progress persist independently; Reset Progress requires confirmation and preserves name, operations, and MIN/MAX. Settings Back discards unsaved edits. The keypad stays in one landscape row and uses no system keyboard.
 
-Version `2.0-campaign` (`versionCode = 2`) identifies this campaign build. To replace an older installed build without clearing settings/progress:
+Version `2.1-space-pass` (`versionCode = 3`) identifies this mock Space Pass build. To replace an older installed build without clearing settings/progress:
 
 ```powershell
 adb install -r app/build/outputs/apk/debug/app-debug.apk
@@ -59,3 +59,19 @@ Run device tests with `./gradlew.bat connectedDebugAndroidTest` while an emulato
 ## Black or corrupted screen in the emulator
 
 If the emulator shows a black screen or repeated/striped graphics without an application crash, stop it and select **Software** graphics in Device Manager's advanced AVD settings, then use **Cold Boot**. The Medium Phone API 37 AVD on this machine is configured with `hw.gpu.mode=software`; automatic host GPU rendering produced corrupted frames. Cold boot preserves installed applications, campaign progress, and settings; wiping device data is unnecessary.
+
+
+## Space Pass (local development mock)
+
+Free starts with 2 missions. Each unlocked level start, including Retry, durably consumes one. Starting the last mission begins a 5-minute cooldown; the active mission can finish. Opening menus, map, locked levels, and completion do not cost missions. The allowance restores automatically when the stored epoch timestamp expires, including after restarting the app. Reset Progress preserves it.
+
+- `SpacePass.kt`: pure allowance/cooldown rules and shared `FREE_ATTEMPTS` / `FREE_COOLDOWN_MS` configuration. Change the latter to e.g. `12 * 60 * 60 * 1000L` for a longer production rest; UI and rules use the same value.
+- `SpacePassStore.kt`: independent `space_pass` SharedPreferences. Uses synchronous commits before gameplay to prevent process death from refunding attempts.
+- `SpacePassUi.kt`: plan cards, mock Premium activation, and the friendly resting astronaut/countdown screen.
+- `SpacePassTest.kt` and `SpacePassFlowTest.kt`: cooldown boundaries, no midnight reset, consumption, Retry, persistence/reload, reset isolation, Premium, and live expiry.
+
+Plan switching is a persisted development mock and never opens billing or takes payment. Premium initially enables unlimited attempts and offers optional parental limits. Campaign regression tests explicitly activate mock Premium so that unlocking many levels does not bypass or accidentally test the Free allowance.
+
+Development Settings supports local Free/Premium switching. Premium defaults to unlimited attempts; custom limits accept positive attempts and rest duration (1–8760 hours). Free and Premium usage and cooldowns persist independently. Toggling unlimited preserves custom values and usage. Changing allowance starts a fresh Premium cycle; changing duration applies to the next cooldown. Campaign levels require 4 correct answers and retain 3 lives.
+
+Settings uses one Save Settings button for player name, math options, plan and parental limits. Edits remain a local draft until saved; Back discards all edits. Save validates the form, persists it, opens the Space Map and shows a short Settings saved confirmation. Reset Progress remains a separate confirmed action.

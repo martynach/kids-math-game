@@ -135,7 +135,7 @@ internal fun DrawScope.rocket(center: Offset, width: Float, flame: Float = 1f, e
     drawPath(wing, Color(0xFFEE3B52)); drawPath(wing, Ink.copy(alpha = .5f), style = Stroke(width * .012f))
 }
 
-internal fun DrawScope.astronaut(center: Offset, height: Float, celebrating: Boolean = false) {
+internal fun DrawScope.astronaut(center: Offset, height: Float, celebrating: Boolean = false, sleeping: Boolean = false) {
     val r = height * .19f
     val head = center + Offset(0f, -height * .24f)
     val suit = Color(0xFFEDF9FF)
@@ -153,7 +153,7 @@ internal fun DrawScope.astronaut(center: Offset, height: Float, celebrating: Boo
         drawOval(blue, it - Offset(r * .4f, r * .16f), Size(r * .9f, r * .38f))
     }
     val leftHand = center + Offset(-r * 1.6f, if (celebrating) -height * .21f else height * .04f)
-    val rightHand = center + Offset(r * 1.55f, -height * .25f)
+    val rightHand = center + Offset(r * 1.55f, if (sleeping) height * .04f else -height * .25f)
     listOf(leftHand to -1f, rightHand to 1f).forEach { (hand, side) ->
         val shoulder = center + Offset(side * r * .65f, -height * .04f)
         drawLine(Ink, shoulder, hand, r * .55f)
@@ -186,7 +186,9 @@ internal fun DrawScope.astronaut(center: Offset, height: Float, celebrating: Boo
         Size(r * 1.15f, r), style = Stroke(r * .14f))
     listOf(-.3f, .3f).forEach { eye ->
         val point = head + Offset(r * eye, r * .06f)
-        if (celebrating) drawArc(Ink, 195f, 150f, false, point - Offset(r * .14f, r * .10f),
+        if (sleeping) drawArc(Ink, 0f, 180f, false, point - Offset(r * .14f, r * .10f),
+            Size(r * .28f, r * .20f), style = Stroke(r * .055f))
+        else if (celebrating) drawArc(Ink, 195f, 150f, false, point - Offset(r * .14f, r * .10f),
             Size(r * .28f, r * .20f), style = Stroke(r * .055f))
         else {
             drawOval(Ink, point - Offset(r * .09f, r * .15f), Size(r * .18f, r * .28f))

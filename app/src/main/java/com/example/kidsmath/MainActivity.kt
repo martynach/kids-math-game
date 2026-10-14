@@ -107,11 +107,30 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class Screen { MENU, SETTINGS, MAP, GAME }
+enum class Screen { MENU, SETTINGS, MAP, GAME, REST }
 
-class AppState(application: Application) : AndroidViewModel(application) {
+class AppState @JvmOverloads constructor(application: Application,
+    private val currentTime: () -> Long = System::currentTimeMillis) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("settings", 0)
     private val campaignStore = CampaignStore(application)
+    private val passStore = SpacePassStore(application)
+    var passNow by mutableLongStateOf(currentTime()); private set
+    var spacePass by mutableStateOf(passStore.load().refresh(passNow)); private set
+    private var settingsReturn = Screen.MENU
+    init { passStore.save(spacePass) }
+    private fun savePass(value: SpacePass) { passStore.save(value); spacePass = value }
+    fun refreshPass() {
+        passNow = currentTime()
+        val refreshed = spacePass.refresh(passNow)
+        if (refreshed != spacePass) savePass(refreshed)
+    }
+    fun activatePremium() { refreshPass(); savePass(spacePass.activatePremium()) }
+    fun activateFree() { refreshPass(); savePass(spacePass.activateFree()) }
+    fun configureLimits(unlimited: Boolean, attempts: Int, hours: Int) {
+        refreshPass(); savePass(spacePass.configureLimits(unlimited, attempts, hours))
+    }
+    fun openSettings() { settingsReturn = if (screen == Screen.REST) Screen.REST else Screen.MENU; screen = Screen.SETTINGS }
+    fun closeSettings() { screen = settingsReturn }
     var campaign by mutableStateOf(campaignStore.load()); private set
     var settings by mutableStateOf(readSettings()); private set
     var screen by mutableStateOf(Screen.MENU)
@@ -128,12 +147,25 @@ class AppState(application: Application) : AndroidViewModel(application) {
     fun save(value: Settings) {
         prefs.edit().putString("name", value.name).putString("operations", value.operations.name)
             .putInt("min", value.min).putInt("max", value.max).apply()
-        settings = value; screen = Screen.MENU
+        settings = value; closeSettings()
+    }
+    fun saveSettings(value: Settings, premium: Boolean, unlimited: Boolean, attempts: Int, hours: Int) {
+        refreshPass()
+        val pass = spacePass.configureLimits(unlimited, attempts, hours).copy(isPremium = premium)
+        savePass(pass)
+        save(value)
+        openMap()
+        android.widget.Toast.makeText(getApplication(), "Settings saved", android.widget.Toast.LENGTH_SHORT).show()
     }
     fun openMap() { game = null; screen = Screen.MAP; revision++ }
     fun start(level: Int) {
         if (!campaign.canStart(level)) return
-        game = Game(settings, CampaignConfig.levels[level - 1]); screen = Screen.GAME; revision++
+        refreshPass()
+        val nextPass = spacePass.startAttempt(passNow)
+        if (nextPass == null) { game = null; screen = Screen.REST; revision++; return }
+        val nextGame = Game(settings, CampaignConfig.levels[level - 1])
+        savePass(nextPass)
+        game = nextGame; screen = Screen.GAME; revision++
     }
     fun retry() { game?.config?.level?.let(::start) }
     fun resetProgress() { campaign = CampaignProgress(); campaignStore.save(campaign) }
@@ -156,18 +188,27 @@ private fun KidsMathApp(onExit: () -> Unit, state: AppState = viewModel()) {
         else state.update { it.pause(SystemClock.elapsedRealtime()) }
     }
     val cancelLeave = { state.update { it.resume(SystemClock.elapsedRealtime()) } }
+    LaunchedEffect(state) {
+        while (true) { state.refreshPass(); delay(1000) }
+    }
     BackHandler(state.screen != Screen.MENU) {
-        if (state.screen == Screen.SETTINGS || state.screen == Screen.MAP) state.screen = Screen.MENU else requestLeave()
+        when (state.screen) {
+            Screen.SETTINGS -> state.closeSettings()
+            Screen.MAP -> state.screen = Screen.MENU
+            Screen.REST -> state.openMap()
+            else -> requestLeave()
+        }
     }
     Box(Modifier.fillMaxSize().background(Navy)) {
         SpaceBackground(vibrant = state.screen == Screen.MAP)
         Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(horizontal = 14.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
             when (state.screen) {
-                Screen.SETTINGS -> SettingsScreen(state.settings, state::save, state::resetProgress) { state.screen = Screen.MENU }
+                Screen.SETTINGS -> SettingsScreen(state, state.settings, state::saveSettings, state::resetProgress, state::closeSettings)
                 Screen.MAP -> SpaceMap(state)
                 Screen.GAME -> GameScreen(state, state::leaveGame, requestLeave)
-                Screen.MENU -> MainMenu(state.settings, state::openMap, { state.screen = Screen.SETTINGS }, onExit)
+                Screen.REST -> RestScreen(state)
+                Screen.MENU -> MainMenu(state.settings, state::openMap, state::openSettings, onExit)
             }
         }
     }
@@ -210,7 +251,7 @@ private fun MainMenu(settings: Settings, start: () -> Unit, configure: () -> Uni
 }
 
 @Composable
-private fun SpaceButton(label: String, color: Color, modifier: Modifier = Modifier,
+internal fun SpaceButton(label: String, color: Color, modifier: Modifier = Modifier,
                         onClick: () -> Unit) {
     PolishedButton(label, color, modifier.heightIn(min = 48.dp), onClick = onClick)
 }
@@ -243,7 +284,7 @@ private fun PolishedButton(label: String, color: Color, modifier: Modifier = Mod
 
 @Composable
 @OptIn(ExperimentalComposeUiApi::class)
-private fun SettingsScreen(initial: Settings, save: (Settings) -> Unit, reset: () -> Unit, back: () -> Unit) {
+private fun SettingsScreen(state: AppState, initial: Settings, save: (Settings, Boolean, Boolean, Int, Int) -> Unit, reset: () -> Unit, back: () -> Unit) {
     var confirmReset by rememberSaveable { mutableStateOf(false) }
     if (confirmReset) AlertDialog(onDismissRequest = { confirmReset = false },
         title = { Text("Reset progress?") },
@@ -261,6 +302,14 @@ private fun SettingsScreen(initial: Settings, save: (Settings) -> Unit, reset: (
     var operations by rememberSaveable { mutableStateOf(initial.operations) }
     var min by rememberSaveable { mutableStateOf(initial.min.toString()) }
     var max by rememberSaveable { mutableStateOf(initial.max.toString()) }
+    var premium by rememberSaveable { mutableStateOf(state.spacePass.isPremium) }
+    var unlimited by rememberSaveable { mutableStateOf(state.spacePass.unlimitedAttempts) }
+    var attempts by rememberSaveable { mutableStateOf(state.spacePass.premiumAttempts.toString()) }
+    var hours by rememberSaveable { mutableStateOf(state.spacePass.restHours.toString()) }
+    val attemptCount = attempts.toIntOrNull()
+    val restHours = hours.toIntOrNull()
+    val limitsValid = !premium || unlimited ||
+        (attemptCount != null && attemptCount > 0 && restHours != null && restHours in 1..SpacePassConfig.MAX_REST_HOURS)
     val minNumber = min.toIntOrNull()
     val maxNumber = max.toIntOrNull()
     val valid = minNumber != null && maxNumber != null && minNumber in 0..100 && maxNumber in minNumber..100
@@ -280,31 +329,31 @@ private fun SettingsScreen(initial: Settings, save: (Settings) -> Unit, reset: (
             }
             Column(Modifier.padding(top = 8.dp).weight(1f).fillMaxWidth()
                 .shadow(10.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp))
-                .background(Brush.verticalGradient(listOf(Color(0xFFF1FAFF), Pale)))
-                .border(2.dp, Color.White.copy(alpha = .9f), RoundedCornerShape(24.dp))
+                .background(Brush.verticalGradient(listOf(Color(0xFF123C7D), Navy)))
+                .border(2.dp, Blue.copy(alpha = .6f), RoundedCornerShape(24.dp))
                 .verticalScroll(rememberScrollState()).padding(16.dp)) {
-                val fields = OutlinedTextFieldDefaults.colors(focusedTextColor = Navy, unfocusedTextColor = Navy,
-                    focusedLabelColor = Navy, unfocusedLabelColor = Navy, cursorColor = Navy,
+                val fields = OutlinedTextFieldDefaults.colors(focusedTextColor = Pale, unfocusedTextColor = Pale,
+                    focusedLabelColor = Pale, unfocusedLabelColor = Pale, cursorColor = Pale,
                     focusedBorderColor = Blue, unfocusedBorderColor = Color(0xFF7A9BC4),
-                    focusedContainerColor = Color.White, unfocusedContainerColor = Color.White)
+                    focusedContainerColor = Navy, unfocusedContainerColor = Navy)
                 OutlinedTextField(name, { name = it }, label = { Text("Player name (optional)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                     singleLine = true, colors = fields, modifier = Modifier.fillMaxWidth())
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                     Column(Modifier.weight(1f)) {
                         PolishedButton("Reset Progress", Color(0xFFBE2944), onClick = { confirmReset = true })
-                        Text("Type of operations", color = Navy, fontFamily = RoundedBold, fontWeight = FontWeight.Bold)
+                        Text("Type of operations", color = Pale, fontFamily = RoundedBold, fontWeight = FontWeight.Bold)
                         Operations.entries.forEach { option ->
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 RadioButton(operations == option, { operations = option },
-                                    colors = RadioButtonDefaults.colors(selectedColor = Blue, unselectedColor = Navy))
+                                    colors = RadioButtonDefaults.colors(selectedColor = Blue, unselectedColor = Pale))
                                 Text(when (option) { Operations.ADDITION -> "Addition"; Operations.SUBTRACTION -> "Subtraction"
-                                    Operations.BOTH -> "Addition and Subtraction" }, color = Navy)
+                                    Operations.BOTH -> "Addition and Subtraction" }, color = Pale)
                             }
                         }
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text("Result range (0–100)", color = Navy, fontFamily = RoundedBold, fontWeight = FontWeight.Bold)
+                        Text("Result range (0–100)", color = Pale, fontFamily = RoundedBold, fontWeight = FontWeight.Bold)
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedTextField(min, { min = it }, label = { Text("MIN") }, singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = fields,
@@ -313,13 +362,21 @@ private fun SettingsScreen(initial: Settings, save: (Settings) -> Unit, reset: (
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = fields,
                                 modifier = Modifier.weight(1f), isError = !valid)
                         }
-                        if (!valid) Text("Enter whole numbers from 0 to 100. MIN must be ≤ MAX.", color = Color(0xFFAA1838), fontSize = 13.sp)
-                        PolishedButton("Save Settings", Green, Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = valid, onClick = {
-                            if (valid) { keyboard?.hide(); save(Settings(name.trim(), operations, minNumber!!, maxNumber!!)) }
-                        })
+                        if (!valid) Text("Enter whole numbers from 0 to 100. MIN must be ≤ MAX.", color = Color(0xFFFF8CA1), fontSize = 13.sp)
+
                     }
                 }
+                SpacePassSection(premium, unlimited, attempts, hours,
+                    onPremiumChange = { premium = it }, onUnlimitedChange = { unlimited = it },
+                    onAttemptsChange = { attempts = it }, onHoursChange = { hours = it })
             }
+            PolishedButton("Save Settings", Green, Modifier.fillMaxWidth().padding(top = 8.dp),
+                enabled = valid && limitsValid, onClick = {
+                    keyboard?.hide()
+                    save(Settings(name.trim(), operations, minNumber!!, maxNumber!!), premium, unlimited,
+                        attemptCount?.takeIf { it > 0 } ?: state.spacePass.premiumAttempts,
+                        restHours?.takeIf { it in 1..SpacePassConfig.MAX_REST_HOURS } ?: state.spacePass.restHours)
+                })
         }
     }
 }
@@ -599,7 +656,8 @@ private fun SpaceMap(state: AppState) {
                     CampaignConfig.levels.forEachIndexed { i, level ->
                         val unlocked = state.campaign.canStart(level.level)
                         val completed = state.campaign.isCompleted(level.level)
-                        val current = level.level == state.campaign.highestUnlockedLevel
+                        val current = level.level == state.campaign.
+                        highestUnlockedLevel
                         val nodeSize = if (current) 92.dp else 76.dp
                         Column(Modifier.offset(x = spacing * i, y = mapHeight * mapLevelY(i) - nodeSize / 2)
                             .width(spacing), horizontalAlignment = Alignment.CenterHorizontally) {

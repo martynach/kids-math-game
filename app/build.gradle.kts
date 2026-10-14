@@ -10,8 +10,8 @@ android {
         applicationId = "com.example.kidsmath"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "2.0-campaign"
+        versionCode = 3
+        versionName = "2.1-space-pass"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }

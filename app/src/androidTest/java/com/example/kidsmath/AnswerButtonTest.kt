@@ -15,7 +15,7 @@ import org.junit.Test
 class AnswerButtonTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val state get() = ViewModelProvider(compose.activity)[AppState::class.java]
-    @Before fun resetState() { compose.runOnIdle { state.resetProgress(); state.save(Settings()) } }
+    @Before fun resetState() { compose.runOnIdle { state.activatePremium(); state.resetProgress(); state.save(Settings()) } }
     private fun start() {
         compose.onNodeWithText("Start Game").performClick()
         compose.onNodeWithText("Space Map").assertIsDisplayed()

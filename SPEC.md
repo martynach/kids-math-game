@@ -563,3 +563,22 @@ The main goal is a polished local game with:
 Visual refinement: correct-answer feedback lasts 2.6 seconds with fast confetti showers, sparkling stars and a gentle rocket wiggle while the collection arm remains slow. The crystal tank stands beside the rocket on a small base and connects through a hose. Unlocked map planets use vivid colours; the current planet is larger, pulses, and has an orbiting rocket. Locked planets retain their muted appearance and locks.
 
 Crystal collection refinement: collectible gems are larger with bright turquoise facets and a gold outline. The arm delivers each gem into a colourful converter above the freestanding tank. The visible gem spins and dissolves inside the glowing, vibrating chamber before a visible liquid stream pours through its nozzle into the tank. Tank fill follows the pour rather than the gem vanishing above it; the full feedback sequence remains 2.6 seconds.
+
+
+## 26. Space Pass — development mock
+
+Free is the default plan. `SpacePassConfig` centralizes the allowance (2 attempts) and cooldown (5 minutes for development, changeable later without rewriting the rules). This is an exhaustion cooldown, never a calendar-day limit.
+
+An attempt is charged and durably stored only when an unlocked level actually starts. Completion, Game Over, leaving, or killing the process never refunds it or charges it again. Retry is a new start and passes through the same check. Menu, Settings, map browsing, locked levels, and completion screens do not consume attempts.
+
+Starting the last available attempt stores `cooldownEnd = now + configured cooldown`. The active attempt may continue. Until that timestamp no further gameplay or Retry starts. At expiry restore the full allowance and clear the timestamp, including after process death and while the app remains open. Persist plan and allowance independently from campaign and math settings. Reset Progress must not change Space Pass.
+
+Blocked starts open a calm rest screen with a sleeping astronaut, parked rocket, Zzz, the messages “Great space training today!” and “Come back later for more missions!”, a live minutes/seconds countdown, Back to map, and a secondary parent-oriented Settings hint. On expiry show that missions are available again and let the player return to the map without restarting.
+
+Settings preserves name, operations, MIN/MAX and Reset Progress. A separated SPACE PASS section shows Free and Premium cards. Free displays the configured allowance and cooldown and marks the current plan. Premium displays “Custom play limits”, “Unlimited by default”, and “More space adventures!”. Switch to Premium activates and persists a local mock Premium entitlement immediately; Unlimited attempts is enabled by default. No billing, payment, login, network, or Google Play integration is included.
+
+Premium PLAY LIMITS supports an unlimited toggle and saved custom attempts/rest hours. Custom controls are inactive while unlimited is on. Both plans can be selected directly from Settings for development/testing.
+
+Development Settings supports local Free/Premium switching. Premium defaults to unlimited attempts; custom limits accept positive attempts and rest duration (1–8760 hours). Free and Premium usage and cooldowns persist independently. Toggling unlimited preserves custom values and usage. Changing allowance starts a fresh Premium cycle; changing duration applies to the next cooldown. Campaign levels require 4 correct answers and retain 3 lives.
+
+Settings uses one Save Settings button for player name, math options, plan and parental limits. Edits remain a local draft until saved; Back discards all edits. Save validates the form, persists it, opens the Space Map and shows a short Settings saved confirmation. Reset Progress remains a separate confirmed action.
