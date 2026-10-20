@@ -119,12 +119,12 @@ Tests should focus on behavior that can actually break the game.
 
 ### Question generator
 Test that:
-- result is always within `MIN..MAX`,
+- addition results are within `MIN..MAX`; subtraction ignores MIN and has `0 <= b <= a <= MAX`,
 - every operand is within `0..MAX`,
 - subtraction never produces a negative result,
 - selected operations are respected,
 - invalid ranges are handled,
-- immediate identical repetition is avoided where possible.
+- per-attempt uniqueness and all five category limits hold before controlled fallback; wrong answers retain the same question without recording it again.
 
 ### Campaign
 Test that:
@@ -166,3 +166,9 @@ Avoid tests that merely verify framework behavior or trivial UI implementation d
 - Before considering work complete, build the project and run relevant tests.
 - Fix compilation/test failures caused by changes.
 - When an emulator is available, run the application and verify affected flows where practical.
+
+## Final device verification
+
+After connectedDebugAndroidTest, reinstall the deliverable APK and launch its MAIN activity outside instrumentation. Verify menu, map, level entry, incorrect-answer retry, correct-answer advancement, and a cold start. Inspect startup diagnostics and the displayed UI. Leave the normal application installed and launchable after all automated checks; passing instrumentation alone does not complete this verification.
+
+Verification must use the same checkout the user opens in Android Studio. A successful build or launch from a separate clone does not verify the user's project. Resolve conflicting declarations and compile both main and test source sets in that checkout before reporting completion.

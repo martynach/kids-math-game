@@ -31,10 +31,12 @@ The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. Test 
 
 ## Implementation
 
-- `Game.kt`: pure Kotlin question generation, input, lives, feedback, level completion, `LevelConfig`, and campaign unlocking.
+- `Game.kt`: pure Kotlin input, lives, feedback, level completion, `LevelConfig`, and campaign unlocking.
 - `MainActivity.kt`: typed `Screen` navigation, Compose screens, settings, map, crystal collection, tank filling, rocket launch, and Game Over.
 - `CampaignStore.kt`: separate `campaign` SharedPreferences storing the highest unlocked level and final-level completion.
 - `SpaceArt.kt`: native Canvas rocket, crystals, astronaut, planets, stars, and confetti.
+- `QuestionGenerator.kt`: indexed sampler, difficulty/progression/acceptance policies, extensible category tracker, attempt history and bounded selection/fallback.
+- `QuestionGeneratorTest.kt`: deterministic uniformity, exact unranking, decimal transfers, limits/fallback, campaign simulations and million-range checks.
 - `GameTest.kt`: generator constraints, input/pause, lives/energy, configurable level lengths, unlocking/replay, and final-level boundaries.
 - `AnswerButtonTest.kt`: real keypad, map, configured-length completion, replay, persistence/reset, and retry/navigation flows.
 
@@ -81,3 +83,45 @@ Free/Premium selection is a development mock and takes effect only after Save Se
 Free and Premium custom usage/cooldowns persist independently. Saved Unlimited Premium bypasses cooldowns and consumes no attempts. Switching plans or toggling Unlimited preserves custom values and usage. A changed custom allowance starts a fresh Premium cycle when saved; a changed rest duration alone applies to the next cooldown and preserves any active rest. Saving unchanged values does not reset attempts.
 
 With 5 custom attempts and a 1-hour rest, the fifth start begins the cooldown, the sixth is blocked, and expiry restores five attempts. See `SPEC.md` sections 3 and 26 for the complete save, validation and transition rules.
+
+## Arithmetic generation and difficulty
+
+Parent settings remain 0–100. Addition constrains the result to MIN..MAX with
+nonnegative operands. Subtraction ignores MIN and uses 0 <= right <= left <= MAX.
+The raw sampler uses Long triangular counts and indexed unranking, O(log MAX) per
+question and constant initialization memory. BOTH selects operations 50/50 before
+uniform ordered-expression sampling. Pure generation also supports million-sized ranges.
+
+Difficulty is clamp(75*magnitude - simplicityPenalty + 12*decimalTransfers, 0, 100).
+Magnitude is addition result/MAX or subtraction left/MAX (zero when MAX=0). Zero
+addition, subtraction by zero or equal operands receive one 25-point reduction;
+otherwise addition/subtraction by one receives 30. Actual propagated decimal carries
+and borrows are counted. Weights and policies are configurable in QuestionGenerator.kt.
+
+Normalized campaign progress is (level-1)/(totalLevels-1), or zero for a single level.
+Targets run from 8 to 92. Before progress 0.2, a hard cap runs from 30 to 100.
+Eligible candidates are accepted with 0.025+0.975*exp(-0.5*((score-target)/19)^2).
+
+Every attempt normally permits each ordered expression once and each of five categories
+once: addition with zero/one, subtraction by zero/one, equal subtraction. Overlaps
+consume all matching limits. Add a QuestionLimitRule with ID, maximum and predicate
+to extend restrictions. Wrong answers remove a life and repeat the same question after
+existing feedback; they do not consume limits or history again. Retry and new levels
+start fresh trackers. Correct answers alone advance energy and question selection.
+
+After 100 attempts, fallback relaxes probability preference, then the early cap, then
+category limits, and finally uniqueness. Math settings never relax. Small spaces use
+exact indexed searches; larger spaces use bounded probes plus a history-sized prefix
+that guarantees an unused question if one exists. Large-space probes may miss eligible
+cap/category candidates before relaxing those restrictions. Singleton/exhausted pools,
+MAX=0, MAX=1, MIN=MAX=20 and levels longer than their question pool remain playable.
+See SPEC.md sections 4 and 21 for the precise policies and performance trade-off.
+
+Tests use fixed seeds: exact small-space bijections, 200,000 raw draws per operation,
+all supported settings, independently checked scores and transfers, campaign sizes
+1/5/10/30/100, overlapping categories, all fallback stages, incorrect-answer retries,
+and 100 independent campaigns per simulation scenario (MAX 20/100/1000). Simulations
+collect score histograms, per-level means, operations, categories, duplicates and
+fallback activations; assertions check population trends rather than individual
+monotonicity. Million-range and Int-boundary tests check counts/validity without fragile
+timing thresholds. Run the Gradle verification command above for regression coverage.

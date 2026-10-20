@@ -15,23 +15,6 @@ data class Question(val left: Int, val right: Int, val addition: Boolean) {
     val expression: String get() = "$left ${if (addition) "+" else "−"} $right"
 }
 
-class QuestionGenerator(settings: Settings, private val random: Random = Random.Default) {
-    private val questions = buildList {
-        for (a in 0..settings.max) for (b in 0..settings.max) {
-            if (settings.operations != Operations.SUBTRACTION && a + b in settings.min..settings.max)
-                add(Question(a, b, true))
-            if (settings.operations != Operations.ADDITION && a - b in settings.min..settings.max)
-                add(Question(a, b, false))
-        }
-    }
-    fun next(previous: Question? = null): Question {
-        val excluded = questions.indexOf(previous)
-        if (excluded < 0 || questions.size == 1) return questions.random(random)
-        val index = random.nextInt(questions.size - 1)
-        return questions[if (index >= excluded) index + 1 else index]
-    }
-}
-
 object GameRules {
     const val LIVES = 3
     const val ANSWER_FEEDBACK_MS = 2600L
@@ -46,8 +29,8 @@ enum class Phase { PLAYING, FEEDBACK, GAME_OVER, LEVEL_COMPLETE }
 enum class Feedback { CORRECT, WRONG }
 
 /** The caller supplies monotonic time for short feedback transitions; questions are untimed. */
-class Game(val settings: Settings, val config: LevelConfig = CampaignConfig.levels.first(), random: Random = Random.Default) {
-    private val generator = QuestionGenerator(settings, random)
+class Game(val settings: Settings, val config: LevelConfig = CampaignConfig.levels.first(), random: Random = Random.Default, totalLevels: Int = CampaignConfig.TOTAL_LEVELS) {
+    private val generator = QuestionGenerator(settings, random, config.level, totalLevels)
     val energy: Float get() = correct.toFloat() / config.requiredCorrectAnswers
     var correct = 0; private set
     var lives = GameRules.LIVES; private set
@@ -102,7 +85,7 @@ class Game(val settings: Settings, val config: LevelConfig = CampaignConfig.leve
         }
     }
     private fun newQuestion() {
-        question = generator.next(question)
+        if (feedback == Feedback.CORRECT) question = generator.next()
         input = ""; feedback = null; phase = Phase.PLAYING
     }
 }

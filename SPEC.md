@@ -107,29 +107,47 @@ After reset:
 
 ## 4. Math Question Generation
 
-Questions must follow the configured MIN–MAX result range.
+Addition uses nonnegative operands with result in `MIN..MAX`. Subtraction ignores MIN:
+`0 <= right <= left <= MAX`, so results below MIN (including zero) are valid.
+Parent settings remain whole numbers in 0–100 with MIN <= MAX.
 
-For every generated expression:
-1. the result must be within `MIN..MAX`,
-2. every operand must be within `0..MAX`,
-3. no number appearing in the expression may exceed MAX,
-4. subtraction must never produce a negative result,
-5. the selected operation settings must be respected.
+The raw sampler uses Long triangular counts and binary-search unranking, never a table
+of operand pairs. Addition counts `sum(s+1)` for MIN <= s <= MAX; subtraction counts
+`(MAX+1)*(MAX+2)/2`. Each ordered expression is uniform within its operation. BOTH
+chooses an operation 50/50 before sampling, independently of pool sizes. The pure
+sampler and `ArithmeticRange` support at least MAX=1,000,000; the UI range is unchanged.
 
-Example for range `6–9`:
+Within an attempt, normally issue each ordered expression only once (`3+5` and `5+3`
+are distinct). Five independent category rules each permit one occurrence: addition
+with zero, subtraction by zero, equal-operand subtraction, addition with one, and
+subtraction by one. Matching multiple rules consumes every matching limit, including
+both subtraction rules for `0-0` and both addition rules for `0+1`. Rules have an ID,
+maximum and predicate; `QuestionLimitTracker` owns counts separately from evaluation.
+History stores only issued expressions. New Game instances for Retry, replay and level
+entry create fresh history and counts; wrong-answer feedback does not issue a question.
 
-Valid:
-- `4 + 3 = 7`
-- `3 + 6 = 9`
-- `9 - 2 = 7`
-- `9 - 0 = 9`
+Selection first tries up to 100 uniformly sampled candidates, checks uniqueness,
+category limits and the early cap, then applies the probability in section 21.
+Fallback stages run in this order:
+1. Ignore probabilistic difficulty preference, keeping cap, limits and uniqueness.
+2. Relax the cap, keeping limits and uniqueness.
+3. Relax category limits, keeping uniqueness.
+4. Allow repeats only when every unique expression has been issued.
 
-Invalid:
-- `10 - 2 = 8`
-- `5 + 5 = 10`
-- `12 - 4 = 8`
+Math validity and operations never relax. Spaces of at most 20,000 expressions use
+an exact indexed scan at each fallback stage without storing the universe. Larger
+spaces use 512 shared random probes plus the first history-size+1 indexed questions.
+This bounded prefix guarantees an unused expression whenever one exists, even if the
+random source repeatedly returns the same candidate. Large-space cap/category
+relaxation can occur when probes miss an eligible expression; proving exhaustion of
+arbitrary custom predicates would require a full search. Fallback traversal is stable
+for a fixed seed and history. Work depends on attempts and issued history, not a
+quadratic initialization. `SelectionStage` exposes fallback activation for tests.
 
-The generator should avoid immediately repeating the exact same expression.
+Singleton ranges, MIN>0, exhausted overlapping categories, no cap-eligible expressions,
+and levels longer than the unique pool all terminate using this hierarchy. In
+particular MAX=0 always produces zero-valued arithmetic; MAX=1 and MIN=MAX=20 remain
+valid without inventing operands outside the parent range.
 
 ## 5. Game Structure
 
@@ -404,7 +422,7 @@ After a wrong answer:
 - do not collect a crystal,
 - do not increase rocket energy,
 - show friendly feedback (the sad face remains visible for 2.6 seconds),
-- continue with a new question.
+- clear the input and repeat the same question if lives remain, without consuming category limits or history again; only a correct answer advances.
 
 Do not use:
 - explosions,
@@ -478,19 +496,26 @@ The exact final-campaign celebration can be refined later.
 
 ## 21. Difficulty Progression
 
-For now, Levels do not automatically become mathematically harder.
+Difficulty is evaluated independently of random generation, history and limits:
+`clamp(75*magnitude - simplicityPenalty + 12*carryBorrowCount, 0, 100)`.
+Magnitude is result/MAX for addition and left/MAX for subtraction; at MAX=0 it is zero.
+Zero addition, subtraction by zero and equal subtraction use a single 25-point penalty.
+Otherwise addition with one or subtraction by one uses 30 points. Penalties never stack;
+zero/equal conditions precede one. Decimal carries/borrows are counted position by
+position, including propagated transfers (999+1 has three carries; 1000-1 three borrows).
+All weights live in `DifficultyWeights`.
 
-All Levels may use the same player-selected math settings.
+`ProgressionPolicy` uses progress `(level-1)/(totalLevels-1)`, or zero for one level.
+The target is `8+84*progress`. For progress < 0.2, the hard cap is
+`30+70*(progress/0.2)`; thereafter it is 100. First levels therefore favor easy
+questions regardless of campaign length. Required correct answers, lives, settings,
+and UI are unchanged. A single-level campaign deterministically uses target 8/cap 30.
 
-Do not invent a difficulty curve yet.
-
-However, Level configuration should allow future variation of parameters such as:
-- required correct answers,
-- math difficulty/ranges,
-- timer settings,
-- other Level-specific parameters.
-
-This should remain simple and should not become a generic game-engine architecture.
+For an eligible candidate, `AcceptancePolicy` accepts with probability
+`0.025+0.975*exp(-0.5*((difficulty-target)/19)^2)`. This retains variation; neither
+individual questions nor every individual campaign must increase monotonically.
+Policy parameters and retry/probe budgets are named configuration values. Difficulty
+scores are calculated on demand, never precomputed for the whole space.
 
 ## 22. Optional Player Name
 
@@ -568,7 +593,7 @@ The current version does not require:
 - payments,
 - online rankings,
 - social features,
-- sophisticated difficulty progression.
+- a generic game engine.
 
 The main goal is a polished local game with:
 - a persistent campaign,

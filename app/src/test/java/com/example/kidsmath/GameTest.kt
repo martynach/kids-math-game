@@ -7,25 +7,15 @@ import kotlin.random.Random
 class GameTest {
     @Test fun generatorRespectsEveryValidRangeAndOperation() {
         for (min in 0..100) for (max in min..100) for (operations in Operations.entries) {
-            val generator = QuestionGenerator(Settings(operations = operations, min = min, max = max), Random(min * 101 + max))
-            val possibleQuestions = (min..max).sumOf { result ->
-                when (operations) {
-                    Operations.ADDITION -> result + 1
-                    Operations.SUBTRACTION -> max - result + 1
-                    Operations.BOTH -> max + 2
-                }
-            }
-            var previous: Question? = null
+            val generator = UniformQuestionSampler(min, max, operations, Random(min * 101 + max))
             repeat(5) {
-                val question = generator.next(previous)
+                val question = generator.next()
                 assertTrue(question.left in 0..max)
                 assertTrue(question.right in 0..max)
-                assertTrue(question.result in min..max)
+                assertTrue(question.result in (if (question.addition) min else 0)..max)
                 assertTrue(question.result >= 0)
                 if (operations == Operations.ADDITION) assertTrue(question.addition)
                 if (operations == Operations.SUBTRACTION) assertFalse(question.addition)
-                if (possibleQuestions > 1) assertNotEquals(previous, question)
-                previous = question
             }
         }
     }
@@ -40,13 +30,11 @@ class GameTest {
     @Test fun singletonRangeStillGenerates() {
         Operations.entries.forEach {
             val generator = QuestionGenerator(Settings(operations = it, min = 0, max = 0))
-            val first = generator.next()
-            assertEquals(0, generator.next(first).result)
+            assertEquals(0, generator.next().result)
         }
         for (max in 0..100) {
             val generator = QuestionGenerator(Settings(operations = Operations.SUBTRACTION, min = max, max = max))
-            val first = generator.next()
-            assertEquals(Question(max, 0, false), generator.next(first))
+            assertTrue(generator.next().result in 0..max)
         }
     }
 
