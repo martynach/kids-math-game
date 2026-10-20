@@ -149,6 +149,10 @@ class SpacePassFlowTest {
     @Test fun oneSavePersistsAllSettingsAndCanEditLimitsAgain() {
         compose.onNodeWithText("⚙  Settings").performClick()
         compose.onNodeWithText("Player name (optional)").performTextReplacement("Nova")
+        // Finish text entry before scrolling. The native IME resize animation is
+        // outside Compose's idle tracking and can move the plan button mid-tap.
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        compose.waitForIdle()
         compose.onNodeWithText("Switch to Premium").performScrollTo().performClick()
         compose.onNodeWithText("Attempts before rest").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithContentDescription("Unlimited attempts").performScrollTo().performClick()

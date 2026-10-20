@@ -172,3 +172,17 @@ Avoid tests that merely verify framework behavior or trivial UI implementation d
 After connectedDebugAndroidTest, reinstall the deliverable APK and launch its MAIN activity outside instrumentation. Verify menu, map, level entry, incorrect-answer retry, correct-answer advancement, and a cold start. Inspect startup diagnostics and the displayed UI. Leave the normal application installed and launchable after all automated checks; passing instrumentation alone does not complete this verification.
 
 Verification must use the same checkout the user opens in Android Studio. A successful build or launch from a separate clone does not verify the user's project. Resolve conflicting declarations and compile both main and test source sets in that checkout before reporting completion.
+
+## Star hints
+
+- Preserve the one-row keypad and reuse normal answer grading/feedback.
+- Hints are temporary UI sessions, never persisted game/campaign/pass state.
+- MAX <= 20 controls availability; levels <= 10 demonstrate and levels >= 11 allow gestures.
+- Keep the 5x4 row-major grid, fixed sacks, stable star IDs and atomic 20-star capacity.
+- Dismiss and cancel the hint before confirming an answer; X/Back must preserve input.
+- Verify addition/subtraction, dragging/return/dimming, mode boundary 10/11, rapid edits,
+  and normal app launch visually on the emulator after all automated tests.
+- Show group outlines and numeric count badges only in automatic addition.
+- Subtraction stars fade to gray and lose their glow; never draw a red cross.
+
+- Interactive stars settle from their release point into the nearest free slot. Preserve chosen slots when other stars move or return; never restart a released star at its sack.

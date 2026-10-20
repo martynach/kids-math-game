@@ -125,3 +125,27 @@ collect score histograms, per-level means, operations, categories, duplicates an
 fallback activations; assertions check population trends rather than individual
 monotonicity. Million-range and Int-boundary tests check counts/validity without fragile
 timing thresholds. Run the Gradle verification command above for regression coverage.
+
+## Star counting hints
+
+When MAX <= 20, tap the gently pulsing gold ? star during a question. The hint keeps
+the expression and existing keypad, replaces the rocket scene with a fixed 5×4 star
+grid and yellow/pink bags, and supports at most 20 stars. Levels 1–10 demonstrate
+counting automatically, with stars traveling from bags every 500 ms and subtraction
+stars fading to gray after the initial set. From level 11, drag stars out in any color
+order and place them in the nearest free slot. A released star flies directly from
+the finger to its slot; existing stars can be rearranged without shifting others.
+Return them to the matching sack, and tap subtraction stars to dim or relight.
+Numeric badges and continuous group outlines appear only in automatic addition;
+all interactive hints and all subtraction hints omit these decorations.
+
+Every opening starts empty. X or Android Back closes the hint without changing the
+question, input, lives, energy or Space Pass. Confirm closes and cancels the hint
+first, then uses the ordinary answer evaluation and success/failure animations.
+The keypad remains one horizontal row, as required by the existing game design.
+No hint data is persisted. See SPEC.md section 28 for detailed behavior.
+
+New files: StarHintState.kt (pure rules/timeline), StarHintArt.kt (native Compose
+art and layout), StarHintScreen.kt (transient UI/gestures/animations),
+StarHintStateTest.kt and StarHintFlowTest.kt. Tests include deterministic clocks,
+gesture cancellation, return/compaction, 20-star capacity and normal game feedback.

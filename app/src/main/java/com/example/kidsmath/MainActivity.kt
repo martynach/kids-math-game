@@ -81,7 +81,7 @@ private val Gold = Color(0xFFFFD34B)
 private val Pale = Color(0xFFD4EEFF)
 private val RoundedFont = FontFamily(androidx.compose.ui.text.font.Typeface(
     android.graphics.Typeface.create("sans-serif-rounded", android.graphics.Typeface.NORMAL)))
-private val RoundedBold = FontFamily(androidx.compose.ui.text.font.Typeface(
+internal val RoundedBold = FontFamily(androidx.compose.ui.text.font.Typeface(
     android.graphics.Typeface.create("sans-serif-rounded", android.graphics.Typeface.BOLD)))
 private val TitleStyle = TextStyle(fontFamily = RoundedBold, fontWeight = FontWeight.Black,
     shadow = Shadow(Color(0xFF020B2B), Offset(0f, 3f), 3f))
@@ -386,6 +386,27 @@ private fun GameScreen(state: AppState, menu: () -> Unit, requestLeave: () -> Un
     val game = state.game ?: return
     // The revision makes the small, pure Kotlin game model observable without Compose dependencies.
     @Suppress("UNUSED_VARIABLE") val revision = state.revision
+    var hintOpen by remember(game, game.question) { mutableStateOf(false) }
+    var pendingHintConfirm by remember(game) { mutableStateOf(false) }
+    val submit: () -> Unit = {
+        if (!pendingHintConfirm) {
+            if (hintOpen) { hintOpen = false; pendingHintConfirm = true }
+            else state.update { it.confirm(SystemClock.elapsedRealtime()) }
+        }
+    }
+    BackHandler(hintOpen) { hintOpen = false }
+    LaunchedEffect(hintOpen, pendingHintConfirm) {
+        if (!hintOpen && pendingHintConfirm) {
+            // Composition has removed the hint and cancelled its jobs. Render the
+            // ordinary game before invoking the existing answer/feedback path.
+            withFrameNanos { }
+            pendingHintConfirm = false
+            state.update { it.confirm(SystemClock.elapsedRealtime()) }
+        }
+    }
+    LaunchedEffect(game.phase, game.pausedAt) {
+        if (game.phase != Phase.PLAYING || game.pausedAt != null) hintOpen = false
+    }
     val lives = game.lives
     val answerAnimation = remember(game) { Animatable(0f) }
     LaunchedEffect(game.phase, game.question) {
@@ -397,6 +418,12 @@ private fun GameScreen(state: AppState, menu: () -> Unit, requestLeave: () -> Un
             state.update { it.tick(SystemClock.elapsedRealtime()) }
             delay(50)
         }
+    }
+    if (hintOpen) {
+        StarHintScreen(game.question, game.input, game.config.level, close = { hintOpen = false }) {
+            Keypad(if (pendingHintConfirm) Phase.FEEDBACK else game.phase, game.input, state, submit)
+        }
+        return
     }
     when (game.phase) {
         Phase.LEVEL_COMPLETE -> CompletionScreen(game, menu)
@@ -414,6 +441,12 @@ private fun GameScreen(state: AppState, menu: () -> Unit, requestLeave: () -> Un
                 Text("★  ${game.correct} / ${game.config.requiredCorrectAnswers}", Modifier.weight(1f), color = Gold, fontWeight = FontWeight.Bold,
                     fontSize = 23.sp, style = TitleStyle, textAlign = androidx.compose.ui.text.style.TextAlign.End)
                 Spacer(Modifier.width(12.dp))
+                if (StarHintRules.available(game.settings.max)) {
+                    StarHintButton(game.phase == Phase.PLAYING && game.pausedAt == null && !pendingHintConfirm) {
+                        if (StarHintRules.supports(game.question)) hintOpen = true
+                        else android.util.Log.w("StarHint", "Question outside visualization bounds: ${game.question}")
+                    }
+                }
                 SpaceButton("⌂ Map", Blue, onClick = requestLeave)
             }
             Box(Modifier.padding(top = 5.dp).widthIn(max = 420.dp).fillMaxWidth(.62f)
@@ -440,13 +473,14 @@ private fun GameScreen(state: AppState, menu: () -> Unit, requestLeave: () -> Un
                     else -> "Keep going! You can do it!"
                 })
             }
-            Keypad(game.phase, game.input, state)
+            Keypad(if (pendingHintConfirm) Phase.FEEDBACK else game.phase, game.input, state, submit)
         }
     }
 }
 
 @Composable
-private fun Keypad(phase: Phase, input: String, state: AppState) {
+private fun Keypad(phase: Phase, input: String, state: AppState,
+                   confirm: () -> Unit = { state.update { it.confirm(SystemClock.elapsedRealtime()) } }) {
     Row(Modifier.fillMaxWidth().shadow(8.dp, RoundedCornerShape(16.dp))
         .background(Brush.verticalGradient(listOf(Color(0xEE17316B), Color(0xEE050F31))), RoundedCornerShape(16.dp))
         .border(1.dp, Color(0xFF5687CC).copy(alpha = .45f), RoundedCornerShape(16.dp)).padding(6.dp),
@@ -463,7 +497,7 @@ private fun Keypad(phase: Phase, input: String, state: AppState) {
         }
         Spacer(Modifier.width(12.dp))
         Key("✓", "Confirm answer", Green, Modifier.weight(1.3f), phase == Phase.PLAYING && input.isNotEmpty()) {
-            state.update { it.confirm(SystemClock.elapsedRealtime()) }
+            confirm()
         }
     }
 }

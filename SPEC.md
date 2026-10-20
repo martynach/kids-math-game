@@ -667,3 +667,65 @@ The countdown uses the active plan's timestamp and updates while the app is open
 Focused automated tests should cover question ranges/operations/repetition, configurable energy and lives, campaign unlocking/replay/final-level boundaries, persistence and reset isolation. Space Pass tests should cover two Free starts, five Premium custom starts followed by a blocked sixth, exact expiry, independent plan usage, Unlimited toggling, invalid limits and restart persistence.
 
 Settings UI regression tests should save the whole form, return to the map, reopen Settings and successfully edit/save custom limits again. Verify that Back discards draft changes, inactive controls are disabled, and saving or recomposition does not consume attempts. Build and run relevant tests after implementation changes; use an available emulator for affected flows.
+
+## 28. Star counting hints
+
+During PLAYING, a gently scaling gold star with a question mark is visible exactly
+when settings.max <= 20. It opens a full-screen counting view with the current
+expression, the existing single-row keypad and Close hint (X). The ordinary rocket,
+crystals and feedback scene are absent while the hint is open. Existing cosmic
+background art remains visible. Hint Back closes just the hint; ordinary gameplay
+Back retains its existing pause/leave confirmation behavior.
+
+Each opening creates a new temporary StarHintState. No hint state is persisted or
+stored in Game, campaign, Space Pass or settings. X/Back preserve the current question,
+entered digits, lives, energy and pass usage. The hint cannot generate or grade
+questions. Confirm first disposes the hint and its gestures/animations, renders the
+ordinary game, then invokes the existing confirm method once on the next frame.
+The same success/failure, lives, crystals and completion effects are reused.
+
+The grid has 5 columns and 4 rows. Stable row-major slots and uniform-sized stars
+never depend on color or count. Interactive stars own stable, independently chosen slots. Yellow and pink bags remain fixed at the sides;
+subtraction has only a yellow bag. Only automatic addition shows glowing group
+outlines and numeric labels, including bag counts during travel. All subtraction
+hints and all interactive hints omit group outlines and numeric count badges.
+Empty slots have faint dashed star outlines.
+
+Levels 1–10 automatically demonstrate: one yellow star per left operand, then one
+pink star per right addition operand; movement from sack to slot takes 420 ms with
+new starts every 500 ms. Subtraction first draws the left operand, pauses, then
+dims the first right-operand stars at 500 ms intervals. Their gold fill fades to
+soft gray and their glow disappears over 220 ms, retaining the stars and their slots.
+A short touch pulse demonstrates tapping; no red crosses are drawn.
+Zero operands are supported. Demonstrations run on the Compose frame clock and
+are cancelled when their screen leaves composition.
+
+From level 11, start empty. Drag from either sack into the grid to add one star per
+completed gesture, irrespective of operand values. It settles into the nearest free
+slot to the release point (ties use row-major order). The dragged star continues
+from its release position, with no disappearance or second flight from the sack.
+Existing stars can be dragged to another nearest free slot, preserving identity and light.
+At most 20 stars total, including stars currently returning to sacks, are reserved.
+The 21st gesture does nothing. Drag a star to its matching-color sack to return it
+with animation, leaving every other star in its chosen slot. Wrong bags, interrupted and invalid drops return
+the star to its slot. Subtraction stars toggle between lit gold and dim gray on tap;
+dragging never counts as a tap. Stable IDs preserve dimmed states during moves and returns.
+Interactive hints never show group outlines or numeric count badges, even when
+colors alternate. Addition star taps do not alter the counting model.
+
+StarHintState.kt contains pure interaction rules and the automatic timeline;
+StarHintArt.kt contains scalable bags, stars, grid geometry and group outlines;
+StarHintScreen.kt owns transient Compose state, frame-clock animation and gestures.
+MainActivity.kt reuses its existing keypad and integrates dismissal/confirmation.
+Supported visualization data is validated before opening; recoverable timeline
+errors are logged and close only the hint. Coroutine cancellation is propagated.
+
+Unit tests cover ranges, mode boundaries, all grid sizes, timelines, count limits,
+overlapping rapid edits, color order, return validation, stable IDs, dimming and
+fresh sessions. Device tests use controlled Compose time for animations and gestures,
+plus real AppState/keypad checks for availability, X/Back, input preservation, pass
+isolation and existing feedback after confirmation in both modes. All prior tests
+remain part of regression verification. Final acceptance includes ordinary app
+installation/launch and visual/device checks in the same Android Studio checkout.
+
+Interactive gesture tolerance: bag pickup/return targets and the grid drop target extend 0.65 grid cell beyond their visible bounds, clipped to the hint surface. A completed drag must move at least 24 dp after recognition to add or return a star. Taps never add/return stars; tapping a subtraction star still toggles its light. Cancelled or invalid drags preserve the model.
