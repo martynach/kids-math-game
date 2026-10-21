@@ -186,3 +186,9 @@ Verification must use the same checkout the user opens in Android Studio. A succ
 - Subtraction stars fade to gray and lose their glow; never draw a red cross.
 
 - Interactive stars settle from their release point into the nearest free slot. Preserve chosen slots when other stars move or return; never restart a released star at its sack.
+
+## Campaign finale
+- Preserve the existing launch before the final-level story; earlier levels return normally.
+- Keep completion durable independently of reward playback. Skip opens victory, which waits indefinitely for map navigation.
+- Reuse the existing rocket and preserve sprite alpha/aspect ratio. Never add attempts or levels for the story.
+- Verify the full ending, skip, replay and interruption on an emulator; reinstall and cold-launch after connected tests.

@@ -729,3 +729,44 @@ remain part of regression verification. Final acceptance includes ordinary app
 installation/launch and visual/device checks in the same Android Studio checkout.
 
 Interactive gesture tolerance: bag pickup/return targets and the grid drop target extend 0.65 grid cell beyond their visible bounds, clipped to the hint surface. A completed drag must move at least 24 dp after recognition to add or return a star. Taps never add/return stars; tapping a subtraction star still toggles its light. Cancelled or invalid drags preserve the model.
+
+## 29. Final campaign completion story
+
+After the final configured level reaches its configured correct-answer target, persist
+campaign completion immediately. Finish existing crystal feedback, tank-to-rocket fuel
+transfer, lift-off, celebration loop and departure unchanged. Only the map return is
+replaced by the automatic finale. Earlier levels keep their normal completion flow.
+
+FinaleScene contains the configurable 40-second story: JOURNEY 5s; CASTLE 4s; MEETING
+4s; GIFT 6s; RESCUE 6s; BOARDING 5s; EARTH 5s; HOME 5s. Show the same game rocket,
+a crowned princess in a locked tower, a friendly dragon holding the key, astronaut
+landing and offering a magical star, voluntary key exchange, unlocked door and
+princess greeting, boarding and goodbye, then blue-green Earth and a safe grassy
+landing. Use gentle movement, pose changes, hearts, sparkles and confetti without
+violence, abrupt flashing, audio dependency or network access.
+
+Use native Compose frame timing and 650ms scene dissolves. Preserve aspect ratios,
+transparency and cropped caption-free sprite regions. The original reference rockets
+must not replace the gameplay rocket. Avoid duplicate baked-in scenery. Asset origins
+are resources/final_animation/kids_math_finale_assets (25); imported assets are
+app/src/main/res/drawable-nodpi/finale_*.png. Use native Earth landing scenery to avoid
+the different rocket baked into the provided landing illustration.
+
+At the end show MISSION COMPLETE!, You Saved the Princess!, All <configured total>
+Levels Completed!, and Back to Space Map. Victory has no timeout. Skip and Android
+Back during the story open victory; Back from victory returns to the map. The finale
+is not another level and never consumes a Space Pass attempt.
+
+Campaign completion and the reward checkpoint are independent stores. Persist the
+pending reward at completion, checkpoint playback each second and on interruption,
+and exclude time spent backgrounded. Activity recreation retains playback through
+AppState. Process restart resumes the saved checkpoint, including victory; interruption
+during the original launch may resume directly at the beginning of the story. Explicit
+return to the map clears the pending reward, so ordinary map visits never replay it.
+Replaying the final level can earn the ending again. Launch callbacks are guarded
+against stale games and duplicate transitions. Disposal cancels the frame coroutine.
+
+Verify normal/final completion and launch ordering, configured duration boundaries,
+indefinite victory, skip and Back, map return, persisted final completion and reward,
+replay, limited-pass consumption, background/recreation and cold-start restoration.
+Inspect the real full sequence on an emulator after installing the deliverable APK.

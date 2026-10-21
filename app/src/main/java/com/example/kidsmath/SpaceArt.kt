@@ -72,10 +72,10 @@ internal fun DrawScope.planet(center: Offset, radius: Float, color: Color, vivid
         Size(radius * 1.78f, radius * 1.78f), style = Stroke(radius * .035f))
 }
 
-internal fun DrawScope.rocket(center: Offset, width: Float, flame: Float = 1f, enginesOn: Boolean = true) {
+internal fun DrawScope.rocket(center: Offset, width: Float, flame: Float = 1f, enginesOn: Boolean = true, shadow: Boolean = true) {
     if (width <= .1f) return
     val x = center.x; val y = center.y
-    drawOval(Color(0xFF020828).copy(alpha = .25f), Offset(x - width * .48f, y + width * .24f),
+    if (shadow) drawOval(Color(0xFF020828).copy(alpha = .25f), Offset(x - width * .48f, y + width * .24f),
         Size(width * .95f, width * .16f))
     if (enginesOn) {
         val exhaust = Path().apply {

@@ -149,3 +149,30 @@ New files: StarHintState.kt (pure rules/timeline), StarHintArt.kt (native Compos
 art and layout), StarHintScreen.kt (transient UI/gestures/animations),
 StarHintStateTest.kt and StarHintFlowTest.kt. Tests include deterministic clocks,
 gesture cancellation, return/compaction, 20-star capacity and normal game feedback.
+
+## Final campaign reward
+
+The last configured campaign level continues into a 40-second princess-rescue story
+AFTER the existing fuel transfer, launch loop and off-screen departure. Earlier levels
+retain their ordinary map return. Finale.kt defines eight durations: journey, castle,
+landing/meeting, peaceful star-for-key exchange, rescue, boarding, Earth flight and
+Earth landing. The existing SpaceArt rocket is reused throughout, with a door and ladder.
+FinaleScreen.kt uses native Compose frame animation, scene dissolves, sprite poses and
+particles. It needs neither sound nor network access. Victory waits for Back to Space Map;
+Skip and Android Back during the story go straight to victory.
+
+Completion is saved by CampaignStore before animation. FinaleStore independently
+checkpoints the pending reward once per second and on interruption. Background time
+is excluded. Recreation retains the current playback; process restart resumes the
+checkpoint (an interrupted original launch resumes at the story start). Returning to
+the map clears only the reward checkpoint. Replaying the final level offers the story
+again without reducing progress or consuming any additional Space Pass attempts.
+
+Fourteen supplied PNGs live in app/src/main/res/drawable-nodpi/finale_*.png. Character
+aspect ratios and alpha are preserved; source-sheet captions are excluded by source
+rectangles. Reference rockets and the landing background with a baked-in rocket are
+not used. Earth landing is drawn natively, so the original rocket stays consistent.
+The supplied backgrounds are small (up to 602 x 210), so they remain softer than
+native drawing on large screens. Characters use lightweight pose changes, not skeletal
+animation. FinaleTest and FinaleFlowTest cover scene boundaries, progression, launch
+ordering, skip/map, replay, limited allowances and recreation/process restoration.

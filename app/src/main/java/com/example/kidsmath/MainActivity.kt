@@ -107,12 +107,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class Screen { MENU, SETTINGS, MAP, GAME, REST }
+enum class Screen { MENU, SETTINGS, MAP, GAME, REST, FINALE }
 
 class AppState @JvmOverloads constructor(application: Application,
     private val currentTime: () -> Long = System::currentTimeMillis) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("settings", 0)
     private val campaignStore = CampaignStore(application)
+    private val finaleStore = FinaleStore(application)
+    var finaleElapsedMs by mutableStateOf(finaleStore.load()); private set
+    private var finaleRecordedFor: Game? = null
     private val passStore = SpacePassStore(application)
     var passNow by mutableLongStateOf(currentTime()); private set
     var spacePass by mutableStateOf(passStore.load().refresh(passNow)); private set
@@ -133,7 +136,7 @@ class AppState @JvmOverloads constructor(application: Application,
     fun closeSettings() { screen = settingsReturn }
     var campaign by mutableStateOf(campaignStore.load()); private set
     var settings by mutableStateOf(readSettings()); private set
-    var screen by mutableStateOf(Screen.MENU)
+    var screen by mutableStateOf(if (finaleElapsedMs != null) Screen.FINALE else Screen.MENU)
     var game by mutableStateOf<Game?>(null); private set
     var revision by mutableIntStateOf(0); private set
     private fun readSettings(): Settings {
@@ -157,7 +160,26 @@ class AppState @JvmOverloads constructor(application: Application,
         openMap()
         android.widget.Toast.makeText(getApplication(), "Settings saved", android.widget.Toast.LENGTH_SHORT).show()
     }
-    fun openMap() { game = null; screen = Screen.MAP; revision++ }
+    fun openMap() {
+        if (finaleElapsedMs != null) { finaleStore.clear(); finaleElapsedMs = null }
+        game = null; finaleRecordedFor = null; screen = Screen.MAP; revision++
+    }
+    fun finishLaunch(completedGame: Game) {
+        if (screen != Screen.GAME || game !== completedGame || completedGame.phase != Phase.LEVEL_COMPLETE) return
+        if (FinaleTimeline.isFinalLevel(completedGame.config.level)) screen = Screen.FINALE else openMap()
+    }
+    fun advanceFinale(deltaMs: Long) {
+        val elapsed = finaleElapsedMs ?: return
+        if (screen != Screen.FINALE) return
+        val next = FinaleTimeline.advance(elapsed, deltaMs)
+        finaleElapsedMs = next
+        if (next / 1000 != elapsed / 1000 || next == FinaleTimeline.durationMs && elapsed != next) finaleStore.save(next, durable = false)
+    }
+    fun skipFinale() {
+        if (screen != Screen.FINALE || finaleElapsedMs == null) return
+        finaleElapsedMs = FinaleTimeline.durationMs; finaleStore.save(FinaleTimeline.durationMs)
+    }
+    fun persistFinale() { finaleElapsedMs?.let { finaleStore.save(it) } }
     fun start(level: Int) {
         if (!campaign.canStart(level)) return
         refreshPass()
@@ -169,12 +191,15 @@ class AppState @JvmOverloads constructor(application: Application,
     }
     fun retry() { game?.config?.level?.let(::start) }
     fun resetProgress() { campaign = CampaignProgress(); campaignStore.save(campaign) }
-    fun leaveGame() { game = null; screen = Screen.MAP; revision++ }
+    fun leaveGame() = openMap()
     fun update(action: (Game) -> Unit) { game?.let {
             action(it)
             if (it.phase == Phase.LEVEL_COMPLETE) {
                 val next = campaign.complete(it.config.level)
                 if (next != campaign) { campaignStore.save(next); campaign = next }
+                if (FinaleTimeline.isFinalLevel(it.config.level) && finaleRecordedFor !== it) {
+                    finaleRecordedFor = it; finaleElapsedMs = 0L; finaleStore.save(0)
+                }
             }
         }; revision++ }
 }
@@ -184,7 +209,9 @@ private fun KidsMathApp(onExit: () -> Unit, state: AppState = viewModel()) {
     @Suppress("UNUSED_VARIABLE") val revision = state.revision
     val confirmLeave = state.game?.pausedAt != null
     val requestLeave = {
-        if (state.game?.phase == Phase.LEVEL_COMPLETE || state.game?.phase == Phase.GAME_OVER) state.leaveGame()
+        if (state.game?.phase == Phase.LEVEL_COMPLETE) {
+            if (!FinaleTimeline.isFinalLevel(state.game!!.config.level)) state.leaveGame()
+        } else if (state.game?.phase == Phase.GAME_OVER) state.leaveGame()
         else state.update { it.pause(SystemClock.elapsedRealtime()) }
     }
     val cancelLeave = { state.update { it.resume(SystemClock.elapsedRealtime()) } }
@@ -196,6 +223,7 @@ private fun KidsMathApp(onExit: () -> Unit, state: AppState = viewModel()) {
             Screen.SETTINGS -> state.closeSettings()
             Screen.MAP -> state.screen = Screen.MENU
             Screen.REST -> state.openMap()
+            Screen.FINALE -> if (state.finaleElapsedMs == FinaleTimeline.durationMs) state.openMap() else state.skipFinale()
             else -> requestLeave()
         }
     }
@@ -208,6 +236,7 @@ private fun KidsMathApp(onExit: () -> Unit, state: AppState = viewModel()) {
                 Screen.MAP -> SpaceMap(state)
                 Screen.GAME -> GameScreen(state, state::leaveGame, requestLeave)
                 Screen.REST -> RestScreen(state)
+                Screen.FINALE -> FinaleScreen(state)
                 Screen.MENU -> MainMenu(state.settings, state::openMap, state::openSettings, onExit)
             }
         }
@@ -426,7 +455,7 @@ private fun GameScreen(state: AppState, menu: () -> Unit, requestLeave: () -> Un
         return
     }
     when (game.phase) {
-        Phase.LEVEL_COMPLETE -> CompletionScreen(game, menu)
+        Phase.LEVEL_COMPLETE -> CompletionScreen(game) { state.finishLaunch(game) }
         Phase.GAME_OVER -> GameOverScreen(game, menu, state::retry)
         else -> Column(Modifier.widthIn(max = 1050.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -933,6 +962,6 @@ private fun CompletionScreen(game: Game, map: () -> Unit) {
             Text(if (flight.value < .25f) "Fuelling up!" else if (flight.value < .45f) "Rocket ready!" else game.settings.greeting("Great job"), color = Gold, fontSize = 36.sp, style = TitleStyle)
             Text("Level ${game.config.level} completed!", color = Color.White, fontSize = 24.sp)
         }
-        if (flight.value >= 1f) SpaceButton("Back to Map", Green, Modifier.align(Alignment.BottomCenter).padding(16.dp), map)
+        if (flight.value >= 1f) SpaceButton(if (FinaleTimeline.isFinalLevel(game.config.level)) "Continue adventure" else "Back to Map", Green, Modifier.align(Alignment.BottomCenter).padding(16.dp), map)
     }
 }
