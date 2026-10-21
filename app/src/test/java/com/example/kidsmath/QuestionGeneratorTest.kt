@@ -109,7 +109,7 @@ class QuestionGeneratorTest {
     }
     @Test fun normalRestrictionsAndHistoryAtEveryLevel() {
         for(level in listOf(1,15,30)) {
-            val g=QuestionGenerator(Settings(max=100),Random(level),level)
+            val g=QuestionGenerator(Settings(max=100),Random(level),level,totalLevels=30)
             val t=QuestionLimitTracker(); val seen=mutableSetOf<Question>()
             repeat(50) {
                 val q=g.next()

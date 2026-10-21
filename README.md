@@ -44,7 +44,7 @@ The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. Test 
 
 **Start Game → Space Map → selected level → Level Complete / launch → Space Map**.
 
-`CampaignConfig.TOTAL_LEVELS` controls campaign size (initially 30). `DEFAULT_REQUIRED_CORRECT_ANSWERS` is temporarily 4 for faster user testing (future practice lengths remain configurable); change entries in `CampaignConfig.levels` to supply different `LevelConfig.requiredCorrectAnswers` values per level. Completion, crystals, tank energy, and the HUD use that configuration. Levels have no question timer and no rounds.
+`CampaignConfig.TOTAL_LEVELS` controls campaign size (currently 3 for testing). `DEFAULT_REQUIRED_CORRECT_ANSWERS` is temporarily 4 for faster user testing (future practice lengths remain configurable); change entries in `CampaignConfig.levels` to supply different `LevelConfig.requiredCorrectAnswers` values per level. Completion, crystals, tank energy, and the HUD use that configuration. Levels have no question timer and no rounds.
 
 The rocket stays landed while questions are answered. A correct answer animates the mechanical arm reaching a crystal, grasping it, delivering it to the converter above the freestanding tank, dissolving it, pouring energy into the tank, and retracting. Both correct and wrong feedback last 2.6 seconds. A wrong answer removes one of three lives while preserving energy. Game Over offers Retry and Back to Map. A full tank triggers fuel transfer through the hose, engine startup, lift-off, a celebratory loop and departure with confetti/starbursts, then returns to the map after approximately 10 seconds. Only Exit in the main menu finishes the activity.
 
@@ -128,11 +128,21 @@ timing thresholds. Run the Gradle verification command above for regression cove
 
 ## Star counting hints
 
+The larger gold ? star sits in its own sky row, away from Map, with a gentle pulse
+and shimmer. After eight idle seconds a small space-glove finger demonstrates a
+tap or drag visually: three movements, then disappearance, at most three cycles per
+stage. Touch cancels immediately without refunding cycles. Interactive sessions
+teach extraction once, then subtraction dimming once; reopening resets the tutorial.
+Automatic hints have no finger tutorial. Pausing/backgrounding suspends tutorials.
+HintTutorial.kt owns deterministic time/budget rules; HintTutorialUi.kt observes
+touch without consuming it and draws the shared finger. HintTutorialTest and the
+StarHintFlowTest clock tests verify bounded cycles, cancellation and session milestones.
+
 When MAX <= 20, tap the gently pulsing gold ? star during a question. The hint keeps
 the expression and existing keypad, replaces the rocket scene with a fixed 5×4 star
-grid and yellow/pink bags, and supports at most 20 stars. Levels 1–10 demonstrate
+grid and yellow/pink bags, and supports at most 20 stars. The first ceil(campaign size / 3) levels demonstrate
 counting automatically, with stars traveling from bags every 500 ms and subtraction
-stars fading to gray after the initial set. From level 11, drag stars out in any color
+stars fading to gray after the initial set. In the remaining levels, drag stars out in any color
 order and place them in the nearest free slot. A released star flies directly from
 the finger to its slot; existing stars can be rearranged without shifting others.
 Return them to the matching sack, and tap subtraction stars to dim or relight.
@@ -148,7 +158,7 @@ No hint data is persisted. See SPEC.md section 28 for detailed behavior.
 New files: StarHintState.kt (pure rules/timeline), StarHintArt.kt (native Compose
 art and layout), StarHintScreen.kt (transient UI/gestures/animations),
 StarHintStateTest.kt and StarHintFlowTest.kt. Tests include deterministic clocks,
-gesture cancellation, return/compaction, 20-star capacity and normal game feedback.
+gesture cancellation, return with stable slots, 20-star capacity and normal game feedback.
 
 ## Final campaign reward
 

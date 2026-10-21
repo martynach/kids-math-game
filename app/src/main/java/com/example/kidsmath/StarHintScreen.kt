@@ -31,10 +31,13 @@ internal fun StarHintButton(enabled: Boolean, onClick: () -> Unit) {
     val pulse = rememberInfiniteTransition(label = "Hint star pulse")
     val scale by pulse.animateFloat(1f, 1.12f,
         infiniteRepeatable(tween(1300, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "Gentle scale")
-    Box(Modifier.size(52.dp).semantics { contentDescription = "Star counting hint" }
+    Box(Modifier.size(76.dp).semantics { contentDescription = "Star counting hint" }
         .clickable(enabled = enabled, onClickLabel = "Open hint", onClick = onClick), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(42.dp).graphicsLayer { scaleX = scale; scaleY = scale }) {
+        Canvas(Modifier.size(60.dp).graphicsLayer { scaleX = scale; scaleY = scale }) {
             countingStar(center, size.minDimension * .43f, HintGold)
+            val shimmer = (scale - 1f) / .12f
+            drawCircle(Color.White.copy(alpha = .35f + shimmer * .5f), size.minDimension * .035f,
+                center + Offset(size.width * .24f, -size.height * .26f))
         }
         Text("?", color = HintInk, fontSize = 22.sp, fontWeight = FontWeight.Black)
     }
@@ -43,12 +46,15 @@ internal fun StarHintButton(enabled: Boolean, onClick: () -> Unit) {
 /** Disposal of this composable cancels the timeline, travel, return, cross and drag jobs. */
 @Composable
 internal fun StarHintScreen(question: Question, input: String, level: Int,
-                            close: () -> Unit, keypad: @Composable () -> Unit) {
-    val session = remember { StarHintState(question, level) }
+                            close: () -> Unit, totalLevels: Int = CampaignConfig.levels.size,
+                            keypad: @Composable () -> Unit) {
+    val session = remember { StarHintState(question, level, totalLevels) }
     var revision by remember { mutableIntStateOf(0) }
     val changed = { revision++ }
     @Suppress("UNUSED_VARIABLE") val observe = revision
     val stars = session.stars
+    val tutorial = rememberHintTutorial(session.tutorialStage)
+    LaunchedEffect(input) { tutorial.interact() }
     val arrived = remember { mutableStateMapOf<Long, Boolean>() }
     val origins = remember { mutableStateMapOf<Long, Offset>() }
     var demonstrated by remember { mutableStateOf<Long?>(null) }
@@ -78,7 +84,7 @@ internal fun StarHintScreen(question: Question, input: String, level: Int,
             Log.e("StarHint", "Visualization timeline failed", invalid); close()
         }
     }
-    Column(Modifier.fillMaxSize().testTag("star-hint").semantics {
+    Column(Modifier.fillMaxSize().hintActivity(tutorial).testTag("star-hint").semantics {
         contentDescription = "Star counting screen"
         stateDescription = if (session.automatic) "Automatic counting" else "Interactive counting"
     }, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -195,11 +201,20 @@ internal fun StarHintScreen(question: Question, input: String, level: Int,
                 key(item.id) {
                     MovingHintStar(item, geometry, !session.automatic, origins[item.id] ?: geometry.mouth(item.color),
                         moveTo = { point -> session.move(item.id, geometry.nearestSlots(point)); changed() },
-                        toggle = { if (session.toggle(item.id)) changed() },
+                        toggle = { tutorial.interact(); if (session.toggle(item.id)) changed() },
                         returnTo = { color -> session.beginReturn(item.id, color).also { if (it) changed() } },
                         returned = { session.finishReturn(item.id); arrived.remove(item.id); origins.remove(item.id); changed() },
                         landed = { arrived[item.id] = true },
                         demonstrate = demonstrated == item.id && item.crossed)
+                }
+            }
+            TutorialFinger(if (session.tutorialStage != null) tutorial.progress else null, Modifier.fillMaxSize()) { _, wave ->
+                if (session.tutorialStage == HintTutorialStage.EXTRACT) {
+                    val start = geometry.mouth(HintColor.YELLOW)
+                    start + (geometry.center(0) - start) * wave * .8f
+                } else {
+                    val lit = stars.firstOrNull { !it.crossed && !it.returning }
+                    (lit?.let { geometry.center(it.slot) } ?: Offset.Zero) + Offset(0f, (1f - wave) * geometry.cell * .2f)
                 }
             }
         }

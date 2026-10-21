@@ -1,0 +1,7 @@
+--------- beginning of system
+10-21 23:46:24.187  7617  8780 W ActivityTaskManager: callingPackage for (uid=2000, pid=6435) has no WPC
+10-21 23:46:24.196  7617  8780 I ActivityTaskManager: START u0 {flg=0x10000000 xflg=0x5 cmp=com.example.kidsmath/.MainActivity} with LAUNCH_MULTIPLE from uid 2000 (com.android.shell) (BAL_ALLOW_PERMISSION) result code=0
+10-21 23:46:24.755  7617  7639 I ActivityTaskManager: Config changes=20000480 {1.0 310mcc260mnc [en_US] ldltr sw411dp w914dp h411dp 420dpi nrml long compactNeeded land finger qwerty/v/v dpad/v winConfig={ mBounds=Rect(0, 0 - 2400, 1080) mAppBounds=Rect(0, 0 - 2400, 1080) mMaxBounds=Rect(0, 0 - 2400, 1080) mDisplayRotation=ROTATION_90 mWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_90} s.12835 fontWeightAdjustment=0}
+--------- beginning of main
+10-21 23:46:28.398  7617  7636 I ActivityTaskManager: Displayed com.example.kidsmath/.MainActivity for user 0: +4s211ms
+10-21 23:46:34.197  7617  7639 W ActivityTaskManager: Launch timeout has expired, giving up wake lock!

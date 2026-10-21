@@ -19,7 +19,7 @@ class AnswerButtonTest {
     private fun start() {
         compose.onNodeWithText("Start Game").performClick()
         compose.onNodeWithText("Space Map").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Level 2, locked").assertIsNotEnabled()
+        if (CampaignConfig.levels.size > 1) compose.onNodeWithContentDescription("Level 2, locked").assertIsNotEnabled()
         compose.onNodeWithContentDescription("Level 1, unlocked").performClick()
     }
     private fun waitForQuestion() {
@@ -65,6 +65,15 @@ class AnswerButtonTest {
         compose.waitForIdle()
         compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Celebration loop")).assertExists()
         saveScreenshot("completion-loop.png")
+        if (CampaignConfig.levels.size == 1) {
+            compose.mainClock.advanceTimeBy(6000)
+            compose.onNodeWithTag("skip-finale").performClick()
+            compose.mainClock.advanceTimeBy(32)
+            compose.onNodeWithTag("finale-map").performClick()
+            compose.mainClock.advanceTimeBy(32)
+            compose.runOnIdle { assertEquals(CampaignProgress(1, true), CampaignStore(compose.activity).load()) }
+            return
+        }
         compose.mainClock.autoAdvance = true
         compose.waitUntil(16000) { compose.onAllNodesWithContentDescription("Level 2, unlocked").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithContentDescription("Level 1, completed").assertIsEnabled()
@@ -73,16 +82,17 @@ class AnswerButtonTest {
         compose.runOnIdle { assertEquals(2, CampaignStore(compose.activity).load().highestUnlockedLevel) }
     }
     @Test fun persistenceResetAndSettings() {
+        val highest = minOf(6, CampaignConfig.levels.size)
         compose.runOnIdle {
-            unlockThrough(6)
+            unlockThrough(highest)
             state.save(Settings("Karolina", Operations.SUBTRACTION, 6, 9))
-            assertEquals(CampaignProgress(6), CampaignStore(compose.activity).load())
+            assertEquals(CampaignProgress(highest), CampaignStore(compose.activity).load())
         }
         compose.onNodeWithText("⚙  Settings").performClick()
         compose.onNodeWithText("Reset Progress").performScrollTo().performClick()
         compose.onNodeWithText("Reset progress?").assertIsDisplayed()
         compose.onNodeWithText("Cancel").performClick()
-        compose.runOnIdle { assertEquals(6, CampaignStore(compose.activity).load().highestUnlockedLevel) }
+        compose.runOnIdle { assertEquals(highest, CampaignStore(compose.activity).load().highestUnlockedLevel) }
         compose.onNodeWithText("Reset Progress").performClick()
         compose.onNodeWithText("Reset", substring = false).performClick()
         compose.runOnIdle {
@@ -95,7 +105,7 @@ class AnswerButtonTest {
         compose.onNodeWithText("‹ Back").performClick()
         compose.onNodeWithText("Start Game").performClick()
         compose.onNodeWithContentDescription("Level 1, unlocked").assertIsEnabled()
-        compose.onNodeWithContentDescription("Level 2, locked").assertIsNotEnabled()
+        if (CampaignConfig.levels.size > 1) compose.onNodeWithContentDescription("Level 2, locked").assertIsNotEnabled()
         compose.activityRule.scenario.recreate()
         compose.runOnIdle {
             assertEquals(CampaignProgress(), state.campaign)
@@ -137,6 +147,27 @@ class AnswerButtonTest {
         state.openMap()
     }
     @Test fun replayLevelThreeKeepsLevelSixAndLockedLevelsCannotStart() {
+        if (CampaignConfig.levels.size < 7) {
+            compose.runOnIdle {
+                val highest = CampaignConfig.levels.size
+                unlockThrough(highest)
+                val progress = state.campaign
+                state.start(highest + 1)
+                assertNull(state.game)
+                state.start(1)
+                var now = 0L
+                repeat(state.game!!.config.requiredCorrectAnswers) {
+                    state.update { game ->
+                        game.question.result.toString().forEach { game.digit(it.digitToInt()) }
+                        game.confirm(now); now += GameRules.CORRECT_FEEDBACK_MS; game.tick(now)
+                    }
+                }
+                assertEquals(progress.complete(1), state.campaign)
+                state.openMap()
+                assertEquals(state.campaign, AppState(compose.activity.application).campaign)
+            }
+            return
+        }
         compose.runOnIdle {
             unlockThrough(6)
             assertEquals(CampaignProgress(6), AppState(compose.activity.application).campaign)

@@ -1,5 +1,9 @@
 package com.example.kidsmath
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.annotation.DrawableRes
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -80,21 +84,41 @@ internal fun FinaleScreen(state: AppState) {
 }
 
 private data class FinaleArt(val space: ImageBitmap, val planet: ImageBitmap, val earth: ImageBitmap,
-    val princess: ImageBitmap, val princessWave: ImageBitmap, val princessHappy: ImageBitmap,
+    val princessSad: ImageBitmap, val princessWave: ImageBitmap, val princessHappy: ImageBitmap,
     val astronaut: ImageBitmap, val astronautWalk: ImageBitmap, val astronautPoint: ImageBitmap,
-    val dragon: ImageBitmap, val dragonHappy: ImageBitmap, val key: ImageBitmap, val gift: ImageBitmap,
+    val dragonGrumpy: ImageBitmap, val dragonHappy: ImageBitmap, val key: ImageBitmap, val gift: ImageBitmap,
     val castle: ImageBitmap)
 
 @Composable
 private fun finaleArt() = FinaleArt(
     ImageBitmap.imageResource(R.drawable.finale_space), ImageBitmap.imageResource(R.drawable.finale_planet),
-    ImageBitmap.imageResource(R.drawable.finale_earth), ImageBitmap.imageResource(R.drawable.finale_princess),
-    ImageBitmap.imageResource(R.drawable.finale_princess_wave), ImageBitmap.imageResource(R.drawable.finale_princess_happy),
-    ImageBitmap.imageResource(R.drawable.finale_astronaut), ImageBitmap.imageResource(R.drawable.finale_astronaut_walk),
-    ImageBitmap.imageResource(R.drawable.finale_astronaut_point), ImageBitmap.imageResource(R.drawable.finale_dragon),
-    ImageBitmap.imageResource(R.drawable.finale_dragon_happy), ImageBitmap.imageResource(R.drawable.finale_key),
+    ImageBitmap.imageResource(R.drawable.finale_earth), finaleCharacter(R.drawable.finale_princess_sad),
+    finaleCharacter(R.drawable.finale_princess_wave, caption = true), finaleCharacter(R.drawable.finale_princess_happy, caption = true),
+    finaleCharacter(R.drawable.finale_astronaut), finaleCharacter(R.drawable.finale_astronaut_walk, caption = true),
+    finaleCharacter(R.drawable.finale_astronaut_point, caption = true), finaleCharacter(R.drawable.finale_dragon_grumpy),
+    finaleCharacter(R.drawable.finale_dragon_happy, caption = true), ImageBitmap.imageResource(R.drawable.finale_key),
     ImageBitmap.imageResource(R.drawable.finale_star), ImageBitmap.imageResource(R.drawable.finale_castle))
 
+/** Strip transparent margins once; pose sheets have captions below row 182.
+ * Drawing then uses visible height and bottom-center anchoring for every pose. */
+@Composable
+private fun finaleCharacter(@DrawableRes resource: Int, caption: Boolean = false): ImageBitmap {
+    val resources = LocalContext.current.resources
+    return remember(resources, resource, caption) {
+        val bitmap = BitmapFactory.decodeResource(resources, resource)
+        val bottom = if (caption) min(182, bitmap.height) else bitmap.height
+        var left = bitmap.width; var top = bottom; var right = -1; var feet = -1
+        for (y in 0 until bottom) for (x in 0 until bitmap.width) {
+            // Ignore near-invisible export specks when finding the visible bounds.
+            if ((bitmap.getPixel(x, y) ushr 24) > 20) {
+                left = min(left, x); right = max(right, x)
+                top = min(top, y); feet = max(feet, y)
+            }
+        }
+        check(right >= left && feet >= top) { "Empty finale character: $resource" }
+        Bitmap.createBitmap(bitmap, left, top, right - left + 1, feet - top + 1).asImageBitmap()
+    }
+}
 private fun DrawScope.backdrop(image: ImageBitmap, zoom: Float = 1f, alpha: Float = 1f) {
     val scale = max(size.width / image.width, size.height / image.height) * zoom
     val w = image.width * scale; val h = image.height * scale
@@ -102,12 +126,12 @@ private fun DrawScope.backdrop(image: ImageBitmap, zoom: Float = 1f, alpha: Floa
         dstSize = IntSize(w.roundToInt(), h.roundToInt()), alpha = alpha, filterQuality = FilterQuality.High)
 }
 
-/** Position is the feet of a sprite; source crops omit asset-sheet captions, never stretch figures. */
-private fun DrawScope.character(image: ImageBitmap, x: Float, feet: Float, height: Float, pose: Boolean = false, alpha: Float = 1f) {
-    val sourceHeight = if (pose) min(182, image.height) else image.height
+/** Position is the bottom center of a sprite; character assets are normalized when loaded. */
+private fun DrawScope.character(image: ImageBitmap, x: Float, feet: Float, height: Float, alpha: Float = 1f, anchorX: Float = .5f) {
+    val sourceHeight = image.height
     val h = size.height * height; val w = h * image.width / sourceHeight
     drawImage(image, srcSize = IntSize(image.width, sourceHeight),
-        dstOffset = IntOffset((size.width * x - w / 2).roundToInt(), (size.height * feet - h).roundToInt()),
+        dstOffset = IntOffset((size.width * x - w * anchorX).roundToInt(), (size.height * feet - h).roundToInt()),
         dstSize = IntSize(w.roundToInt(), h.roundToInt()), alpha = alpha.coerceIn(0f, 1f), filterQuality = FilterQuality.High)
 }
 
@@ -185,9 +209,9 @@ private fun DrawScope.fantasy(art: FinaleArt, p: Float, unlocked: Boolean = fals
     }
 }
 
-private fun DrawScope.princessInTower(art: FinaleArt, p: Float) {
+private fun DrawScope.princessInTower(art: FinaleArt, p: Float, released: Boolean = false) {
     clipRect(size.width * .71f, size.height * .30f, size.width * .80f, size.height * .53f) {
-        character(art.princessWave, .755f, .64f + .004f * sin(p * 14f), .31f, pose = true)
+        character(if (released) art.princessHappy else art.princessSad, .755f, .64f + .002f * sin(p * 7f), .31f)
     }
     drawRoundRect(Color(0xFFD6B6E3), Offset(size.width * .713f, size.height * .52f),
         Size(size.width * .084f, size.height * .025f), CornerRadius(5f))
@@ -264,7 +288,7 @@ private fun DrawScope.storyScene(scene: FinaleScene, p: Float, art: FinaleArt) {
             // Baked-in castle is used only for the establishing shot, never behind a second castle.
             run {
                 fantasy(art, p); princessInTower(art, p)
-                character(art.dragon, .66f, .86f, .31f)
+                character(art.dragonGrumpy, .66f, .86f, .31f, anchorX = .42f)
                 key(art, .705f, .70f)
                 sparkles(.76f, .38f, p, false)
                 if (p < .40f) backdrop(art.planet, 1f + p * .15f, 1f - part(p, .10f, .40f))
@@ -274,16 +298,19 @@ private fun DrawScope.storyScene(scene: FinaleScene, p: Float, art: FinaleArt) {
             fantasy(art, p); princessInTower(art, p)
             val landing = part(p, 0f, .38f)
             ship(.23f, mix(-.30f, .64f, landing), .19f, engines = p < .35f, door = part(p, .32f, .48f), time = p)
-            if (p > .40f) character(art.astronautWalk, mix(.25f, .53f, part(p, .4f, 1f)), .87f - .004f * abs(sin(p * 40)), .24f, true)
-            character(art.dragon, .66f - .015f * part(p, .7f, 1f), .86f, .31f)
+            if (p > .40f) character(art.astronautWalk, mix(.25f, .53f, part(p, .4f, 1f)), .87f - .004f * abs(sin(p * 40)), .27f)
+            character(art.dragonGrumpy, .66f - .015f * part(p, .7f, 1f), .86f, .31f, anchorX = .42f)
             key(art, .70f, .70f)
         }
         FinaleScene.GIFT -> {
             fantasy(art, p); princessInTower(art, p)
             ship(.23f, .64f, .19f, door = 1f)
-            character(art.astronautPoint, .53f, .87f, .24f, true)
-            character(if (p < .44f) art.dragon else art.dragonHappy, .66f,
-                .86f - if (p > .44f) .012f * abs(sin(p * 19)) else 0f, .31f, pose = p >= .44f)
+            character(art.astronautPoint, .53f, .87f, .27f)
+            val delight = FinaleEmotions.dragonDelight(FinaleFrame(scene, p))
+            val dragonFeet = .86f - if (p > .44f) .012f * abs(sin(p * 19)) else 0f
+            // The grumpy silhouette includes a flame to the right; anchor its feet, not the flame.
+            character(art.dragonGrumpy, .66f, dragonFeet, .31f, alpha = 1f - delight, anchorX = .42f)
+            character(art.dragonHappy, .66f, dragonFeet, .31f, alpha = delight)
             val offer = part(p, .08f, .48f)
             gift(art, mix(.56f, .64f, offer), .68f - .025f * sin(offer * PI.toFloat()), p)
             val exchange = part(p, .54f, .91f)
@@ -291,19 +318,19 @@ private fun DrawScope.storyScene(scene: FinaleScene, p: Float, art: FinaleArt) {
             if (p > .55f) sparkles(.65f, .57f, p, true)
         }
         FinaleScene.RESCUE -> {
-            val unlocked = p >= .32f
+            val unlocked = FinaleEmotions.princessReleased(FinaleFrame(scene, p))
             fantasy(art, p, unlocked)
             ship(.23f, .64f, .19f, door = 1f)
-            if (p < .36f) princessInTower(art, p)
+            if (p < .36f) princessInTower(art, p, released = unlocked)
             val astronautX = mix(.53f, .70f, part(p, 0f, .3f))
-            character(if (p < .3f) art.astronautWalk else art.astronaut, astronautX, .87f, .24f, p < .3f)
+            character(if (p < .3f) art.astronautWalk else art.astronaut, astronautX, .87f, .27f)
             if (p < .39f) key(art, mix(.565f, .752f, part(p, 0f, .32f)), .755f, 1f - part(p, .32f, .39f))
             if (unlocked) {
-                character(art.princessHappy, mix(.755f, .62f, part(p, .36f, .73f)), .87f, .26f, true,
+                character(art.princessHappy, mix(.755f, .62f, part(p, .36f, .73f)), .87f, .26f,
                     part(p, .36f, .46f))
                 sparkles(.66f, .62f, p, true)
             }
-            character(art.dragonHappy, .86f, .87f, .28f, true)
+            character(art.dragonHappy, .86f, .87f, .28f)
         }
         FinaleScene.BOARDING -> {
             fantasy(art, p, true)
@@ -313,10 +340,10 @@ private fun DrawScope.storyScene(scene: FinaleScene, p: Float, art: FinaleArt) {
             ship(mix(.23f, .13f, takeoff), mix(.64f, -.4f, takeoff), .19f,
                 engines = p > .63f, door = 1f - entered, passengers = entered > .5f, time = p)
             if (entered < 1f) {
-                character(art.astronautWalk, mix(.70f, .24f, walk), .87f, .24f, true, 1f - entered)
-                character(art.princessWave, mix(.62f, .25f, walk), .87f, .26f, true, 1f - entered)
+                character(art.astronautWalk, mix(.70f, .24f, walk), .87f, .27f, 1f - entered)
+                character(art.princessWave, mix(.62f, .25f, walk), .87f, .26f, 1f - entered)
             }
-            character(art.dragonHappy, .86f, .87f - .006f * sin(p * 15), .28f, true)
+            character(art.dragonHappy, .86f, .87f - .006f * sin(p * 15), .28f)
             sparkles(.86f, .58f, p, true)
         }
         FinaleScene.EARTH -> {
@@ -329,9 +356,9 @@ private fun DrawScope.storyScene(scene: FinaleScene, p: Float, art: FinaleArt) {
             ship(.32f, mix(-.25f, .63f, part(p, 0f, .4f)), .20f,
                 engines = p < .37f, door = part(p, .4f, .53f), time = p)
             if (p > .5f) {
-                character(art.astronaut, mix(.32f, .48f, part(p, .5f, .73f)), .86f, .27f,
+                character(art.astronaut, mix(.32f, .48f, part(p, .5f, .73f)), .86f, .30f,
                     alpha = part(p, .5f, .60f))
-                character(art.princessHappy, mix(.33f, .64f, part(p, .54f, .8f)), .86f, .29f, true,
+                character(art.princessHappy, mix(.33f, .64f, part(p, .54f, .8f)), .86f, .29f,
                     part(p, .54f, .64f))
                 sparkles(.57f, .56f, p, true)
                 confetti((p * 1.4f) % 1f, 48, seed = 92)
@@ -345,8 +372,8 @@ private fun VictoryScreen(art: FinaleArt, map: () -> Unit) {
     Box(Modifier.fillMaxSize().testTag("finale-victory")) {
         Canvas(Modifier.fillMaxSize()) {
             homeLandscape()
-            character(art.astronaut, .15f, .88f, .34f)
-            character(art.princessHappy, .85f, .88f, .36f, true)
+            character(art.astronaut, .15f, .88f, .37f)
+            character(art.princessHappy, .85f, .88f, .36f)
             sparkles(.15f, .45f, .7f, true); sparkles(.85f, .45f, .7f, true)
         }
         Column(Modifier.align(Alignment.Center).fillMaxWidth(.62f)

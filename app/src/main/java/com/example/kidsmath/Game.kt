@@ -95,7 +95,7 @@ data class LevelConfig(val level: Int, val requiredCorrectAnswers: Int = Campaig
     init { require(level > 0 && requiredCorrectAnswers > 0) }
 }
 object CampaignConfig {
-    const val TOTAL_LEVELS = 30
+    const val TOTAL_LEVELS = 3
     const val DEFAULT_REQUIRED_CORRECT_ANSWERS = 4
     val levels = List(TOTAL_LEVELS) { LevelConfig(it + 1) }
 }

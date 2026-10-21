@@ -199,15 +199,17 @@ Verification must use the same checkout the user opens in Android Studio. A succ
 
 - Preserve the one-row keypad and reuse normal answer grading/feedback.
 - Hints are temporary UI sessions, never persisted game/campaign/pass state.
-- MAX <= 20 controls availability; levels <= 10 demonstrate and levels >= 11 allow gestures.
+- MAX <= 20 controls availability; the first ceil(configured campaign size / 3) levels demonstrate and the remaining levels allow gestures.
 - Keep the 5x4 row-major grid, fixed sacks, stable star IDs and atomic 20-star capacity.
 - Dismiss and cancel the hint before confirming an answer; X/Back must preserve input.
-- In full DoD, verify addition/subtraction, dragging/return/dimming, mode boundary 10/11, rapid edits,
+- In full DoD, verify addition/subtraction, dragging/return/dimming, configured automatic/interactive mode boundary, rapid edits,
   and normal app launch visually on the emulator after all automated tests.
 - Show group outlines and numeric count badges only in automatic addition.
 - Subtraction stars fade to gray and lose their glow; never draw a red cross.
 
 - Interactive stars settle from their release point into the nearest free slot. Preserve chosen slots when other stars move or return; never restart a released star at its sack.
+- Tutorial fingers share an 8-second idle timeout, at most three movements per cycle and three cycles per stage. Touch cancels without refunding cycles. Never consume input or change counting/game state from a tutorial.
+- Interactive extraction and subtraction-dimming milestones last for the hint session; returning/relighting stars never re-enables a completed stage. Automatic hints omit tutorial fingers.
 
 ## Campaign finale
 - Preserve the existing launch before the final-level story; earlier levels return normally.

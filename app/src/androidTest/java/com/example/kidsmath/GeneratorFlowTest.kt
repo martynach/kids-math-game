@@ -58,7 +58,7 @@ class GeneratorFlowTest {
         }
         compose.runOnIdle {
             assertEquals(Phase.LEVEL_COMPLETE, state.game!!.phase)
-            assertEquals(2, state.campaign.highestUnlockedLevel)
+            assertEquals(minOf(2, CampaignConfig.levels.size), state.campaign.highestUnlockedLevel)
         }
     }
 

@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <boolean name="premium" value="true" />
+    <int name="premium_remaining" value="5" />
+    <long name="premium_cooldown" value="0" />
+    <boolean name="unlimited" value="true" />
+    <int name="premium_attempts" value="5" />
+    <int name="rest_hours" value="1" />
+    <int name="remaining" value="2" />
+    <long name="cooldown_end" value="0" />
+</map>

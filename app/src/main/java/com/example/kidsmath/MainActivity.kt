@@ -417,6 +417,10 @@ private fun GameScreen(state: AppState, menu: () -> Unit, requestLeave: () -> Un
     @Suppress("UNUSED_VARIABLE") val revision = state.revision
     var hintOpen by remember(game, game.question) { mutableStateOf(false) }
     var pendingHintConfirm by remember(game) { mutableStateOf(false) }
+    val tutorialEnabled = StarHintRules.available(game.settings.max) && game.phase == Phase.PLAYING &&
+        game.pausedAt == null && !pendingHintConfirm && !hintOpen
+    val tutorial = key(game, game.question, game.correct) { rememberHintTutorial(HintTutorialStage.OPEN, tutorialEnabled) }
+    LaunchedEffect(game.input) { tutorial.interact() }
     val submit: () -> Unit = {
         if (!pendingHintConfirm) {
             if (hintOpen) { hintOpen = false; pendingHintConfirm = true }
@@ -457,7 +461,7 @@ private fun GameScreen(state: AppState, menu: () -> Unit, requestLeave: () -> Un
     when (game.phase) {
         Phase.LEVEL_COMPLETE -> CompletionScreen(game) { state.finishLaunch(game) }
         Phase.GAME_OVER -> GameOverScreen(game, menu, state::retry)
-        else -> Column(Modifier.widthIn(max = 1050.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+        else -> Column(Modifier.widthIn(max = 1050.dp).fillMaxSize().hintActivity(tutorial), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f).semantics { contentDescription = "Lives remaining: $lives" }) {
                     repeat(lives) { Text("♥", color = Color(0xFFFF5268),
@@ -470,30 +474,38 @@ private fun GameScreen(state: AppState, menu: () -> Unit, requestLeave: () -> Un
                 Text("★  ${game.correct} / ${game.config.requiredCorrectAnswers}", Modifier.weight(1f), color = Gold, fontWeight = FontWeight.Bold,
                     fontSize = 23.sp, style = TitleStyle, textAlign = androidx.compose.ui.text.style.TextAlign.End)
                 Spacer(Modifier.width(12.dp))
-                if (StarHintRules.available(game.settings.max)) {
-                    StarHintButton(game.phase == Phase.PLAYING && game.pausedAt == null && !pendingHintConfirm) {
-                        if (StarHintRules.supports(game.question)) hintOpen = true
-                        else android.util.Log.w("StarHint", "Question outside visualization bounds: ${game.question}")
-                    }
-                }
                 SpaceButton("⌂ Map", Blue, onClick = requestLeave)
             }
-            Box(Modifier.padding(top = 5.dp).widthIn(max = 420.dp).fillMaxWidth(.62f)
-                .graphicsLayer {
-                    val value = answerAnimation.value
-                    if (game.phase == Phase.FEEDBACK && game.feedback != Feedback.CORRECT)
-                        translationX = sin(value * Math.PI * 6).toFloat() * 7f * (1f - value)
-                    else { scaleX = 1f + sin(value * Math.PI).toFloat() * .025f; scaleY = scaleX }
-                }.shadow(8.dp, RoundedCornerShape(19.dp))
-                .background(Brush.verticalGradient(listOf(Color(0xFFF4FCFF),
-                    if (game.phase == Phase.FEEDBACK && game.feedback != Feedback.CORRECT) Color(0xFFFFDCE4) else Pale)), RoundedCornerShape(19.dp))
-                .border(2.dp, Color.White.copy(alpha = .85f), RoundedCornerShape(19.dp))
-                .padding(horizontal = 16.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
-                Text("${game.question.expression} = ${game.input.ifEmpty { "?" }}", color = when {
-                    game.phase != Phase.FEEDBACK -> Navy
-                    game.feedback == Feedback.CORRECT -> Color(0xFF087C27)
-                    else -> Color(0xFFBE2944)
-                }, fontSize = 36.sp, fontFamily = RoundedBold, fontWeight = FontWeight.Black)
+            Box(Modifier.fillMaxWidth().heightIn(min = 76.dp), contentAlignment = Alignment.Center) {
+                if (StarHintRules.available(game.settings.max)) {
+                    Box(Modifier.align(Alignment.CenterStart).padding(start = 16.dp)) {
+                        StarHintButton(tutorialEnabled) {
+                            tutorial.interact()
+                            if (StarHintRules.supports(game.question)) hintOpen = true
+                            else android.util.Log.w("StarHint", "Question outside visualization bounds: ${game.question}")
+                        }
+                        TutorialFinger(if (tutorialEnabled) tutorial.progress else null, Modifier.size(76.dp)) { size, wave ->
+                            Offset(size.width * .63f, size.height * (.48f + (1f - wave) * .12f))
+                        }
+                    }
+                }
+                Box(Modifier.padding(top = 5.dp).widthIn(max = 420.dp).fillMaxWidth(.62f)
+                    .graphicsLayer {
+                        val value = answerAnimation.value
+                        if (game.phase == Phase.FEEDBACK && game.feedback != Feedback.CORRECT)
+                            translationX = sin(value * Math.PI * 6).toFloat() * 7f * (1f - value)
+                        else { scaleX = 1f + sin(value * Math.PI).toFloat() * .025f; scaleY = scaleX }
+                    }.shadow(8.dp, RoundedCornerShape(19.dp))
+                    .background(Brush.verticalGradient(listOf(Color(0xFFF4FCFF),
+                        if (game.phase == Phase.FEEDBACK && game.feedback != Feedback.CORRECT) Color(0xFFFFDCE4) else Pale)), RoundedCornerShape(19.dp))
+                    .border(2.dp, Color.White.copy(alpha = .85f), RoundedCornerShape(19.dp))
+                    .padding(horizontal = 16.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                    Text("${game.question.expression} = ${game.input.ifEmpty { "?" }}", color = when {
+                        game.phase != Phase.FEEDBACK -> Navy
+                        game.feedback == Feedback.CORRECT -> Color(0xFF087C27)
+                        else -> Color(0xFFBE2944)
+                    }, fontSize = 36.sp, fontFamily = RoundedBold, fontWeight = FontWeight.Black)
+                }
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 EnergyScene(game, answerAnimation.value)

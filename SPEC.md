@@ -155,7 +155,7 @@ The game is organized as a campaign consisting of Levels.
 
 The initial campaign contains:
 
-`30 levels`
+`3 levels` (temporary testing configuration; `CampaignConfig.TOTAL_LEVELS`)
 
 The number of levels must be configurable and must not be hardcoded throughout the UI or game logic.
 
@@ -670,6 +670,31 @@ Settings UI regression tests should save the whole form, return to the map, reop
 
 ## 28. Star counting hints
 
+The opening gold question star has a 76 dp touch target on a separate sky row from
+Map, left of the expression. Its drawing gently scales 1.0–1.12 and shimmers without
+changing layout. Touch targets must not overlap.
+
+Visual tutorial fingers share HINT_IDLE_TIMEOUT_MS = 8,000 ms. Each stage permits
+at most three cycles, each with three 900 ms movements, then disappears. A new cycle
+waits another eight seconds after the previous cycle ends. Real interaction cancels
+the finger and restarts idle time without refunding spent cycles. A held gesture,
+pause or backgrounded activity cannot display a finger. Overlays consume no input
+and never click, drag, add or dim actual stars. Leaving composition cancels jobs.
+
+During an active question the finger suggests tapping the opening star only when
+the hint is available and closed, outside feedback and transitions. Each new question
+resets this budget. Interactive hint sessions start with a bag-to-grid demonstration;
+the first successful extraction permanently disables it for that session. Subtraction
+then independently suggests tapping a lit, non-returning star, until the first real
+dimming. Relighting or returning all stars never re-enables a completed tutorial stage.
+Without a lit star, the dim tutorial is suspended. Automatic mode has no tutorial finger.
+Every new opening resets these temporary milestones and stage budgets.
+
+Mode selection uses one rule over CampaignConfig.levels.size: ceil(total / 3)
+automatic levels, with the rest interactive (1/2/3 total: one automatic; 5/6: two;
+12: four; 15: five; 30: ten). Returning any star, including a dimmed one, leaves an
+empty slot; all other stars retain their chosen positions and light states.
+
 During PLAYING, a gently scaling gold star with a question mark is visible exactly
 when settings.max <= 20. It opens a full-screen counting view with the current
 expression, the existing single-row keypad and Close hint (X). The ordinary rocket,
@@ -691,7 +716,7 @@ outlines and numeric labels, including bag counts during travel. All subtraction
 hints and all interactive hints omit group outlines and numeric count badges.
 Empty slots have faint dashed star outlines.
 
-Levels 1–10 automatically demonstrate: one yellow star per left operand, then one
+The first ceil(CampaignConfig.levels.size / 3) levels (at least one) automatically demonstrate: one yellow star per left operand, then one
 pink star per right addition operand; movement from sack to slot takes 420 ms with
 new starts every 500 ms. Subtraction first draws the left operand, pauses, then
 dims the first right-operand stars at 500 ms intervals. Their gold fill fades to
@@ -700,7 +725,7 @@ A short touch pulse demonstrates tapping; no red crosses are drawn.
 Zero operands are supported. Demonstrations run on the Compose frame clock and
 are cancelled when their screen leaves composition.
 
-From level 11, start empty. Drag from either sack into the grid to add one star per
+In all remaining levels, start empty. Drag from either sack into the grid to add one star per
 completed gesture, irrespective of operand values. It settles into the nearest free
 slot to the release point (ties use row-major order). The dragged star continues
 from its release position, with no disappearance or second flight from the sack.
@@ -744,6 +769,20 @@ landing and offering a magical star, voluntary key exchange, unlocked door and
 princess greeting, boarding and goodbye, then blue-green Earth and a safe grassy
 landing. Use gentle movement, pose changes, hearts, sparkles and confetti without
 violence, abrupt flashing, audio dependency or network access.
+
+The princess uses `finale_princess_sad.png` throughout captivity. Opening the door
+at RESCUE progress 0.32 switches her to the existing happy pose, including her last
+balcony appearance. Captive movement is a slow subtle sway; joy follows release.
+The guardian uses `finale_dragon_grumpy.png` before noticing the star. In GIFT the
+star is visible immediately and moves toward him from progress 0.08. At 0.18 he
+notices it and dissolves to the happy pose over 0.06 (360ms). Existing reception
+and jumping at 0.44, key exchange at 0.54–0.91, moving aside into RESCUE and friendly
+goodbye retain their order. No attack or combat is added.
+Character rendering removes transparent margins and pose-sheet captions once,
+preserves alpha/aspect ratio and anchors visible silhouettes at bottom center.
+Astronaut visible height is slightly greater than the princess during rescue,
+boarding, landing and victory, independent of PNG margins. Original smiling
+resources remain available alongside the two new supplied PNGs.
 
 Use native Compose frame timing and 650ms scene dissolves. Preserve aspect ratios,
 transparency and cropped caption-free sprite regions. The original reference rockets

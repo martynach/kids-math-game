@@ -46,18 +46,20 @@ class GameTest {
 
 
     @Test fun campaignUnlockReplayAndFinalBoundary() {
-        var progress = CampaignProgress()
-        assertTrue(progress.canStart(1))
-        assertFalse(progress.canStart(2))
-        assertThrows(IllegalArgumentException::class.java) { progress.complete(2) }
-        progress = progress.complete(1)
-        assertEquals(2, progress.highestUnlockedLevel)
-        assertEquals(progress, progress.complete(1))
-        for (level in 2..CampaignConfig.levels.size) progress = progress.complete(level)
-        assertEquals(CampaignConfig.levels.size, progress.highestUnlockedLevel)
-        assertTrue(progress.finalLevelCompleted)
-        assertFalse(progress.canStart(CampaignConfig.levels.size + 1))
-        assertEquals(progress, progress.complete(CampaignConfig.levels.size))
+        for (total in listOf(1, 3, 30)) {
+            var progress = CampaignProgress()
+            assertTrue(progress.canStart(1, total))
+            assertFalse(progress.canStart(2, total))
+            assertThrows(IllegalArgumentException::class.java) { progress.complete(2, total) }
+            progress = progress.complete(1, total)
+            assertEquals(minOf(2, total), progress.highestUnlockedLevel)
+            assertEquals(progress, progress.complete(1, total))
+            for (level in 2..total) progress = progress.complete(level, total)
+            assertEquals(total, progress.highestUnlockedLevel)
+            assertTrue(progress.finalLevelCompleted)
+            assertFalse(progress.canStart(total + 1, total))
+            assertEquals(progress, progress.complete(total, total))
+        }
     }
     @Test fun configurableEnergyAndLives() {
         for (required in listOf(1, 4, 5, 7, 12)) {
@@ -109,7 +111,7 @@ class GameTest {
         game.tick(transition); assertEquals(Phase.PLAYING, game.phase)
     }
     @Test fun testingCampaignCompletesAtFourAndCustomLevelStillNeedsTen() {
-        assertEquals(30, CampaignConfig.levels.size)
+        assertEquals(CampaignConfig.TOTAL_LEVELS, CampaignConfig.levels.size)
         assertTrue(CampaignConfig.levels.all { it.requiredCorrectAnswers == 4 })
         val shortGame = Game(Settings())
         var shortTime = 0L

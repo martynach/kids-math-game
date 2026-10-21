@@ -103,6 +103,11 @@ class FinaleFlowTest {
         compose.onNodeWithTag("finale-victory").assertIsDisplayed()
     }
     @Test fun earlierLevelUsesNormalLaunchAndNeverQueuesFinale() {
+        if (CampaignConfig.levels.size == 1) {
+            // This configuration has no earlier level; do not mistake its finale for a regression.
+            compose.runOnIdle { assertTrue(FinaleTimeline.isFinalLevel(1)) }
+            return
+        }
         complete(1)
         compose.mainClock.advanceTimeBy(6000)
         compose.onNodeWithContentDescription("Level 1 complete").assertIsDisplayed()

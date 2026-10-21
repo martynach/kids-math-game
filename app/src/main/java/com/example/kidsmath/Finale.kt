@@ -14,6 +14,19 @@ enum class FinaleScene(val durationMs: Long, val description: String) {
 
 data class FinaleFrame(val scene: FinaleScene, val progress: Float)
 
+/** Story events shared by rendering and boundary tests; no persisted emotion state. */
+internal object FinaleEmotions {
+    fun princessReleased(frame: FinaleFrame): Boolean =
+        frame.scene.ordinal > FinaleScene.RESCUE.ordinal ||
+            (frame.scene == FinaleScene.RESCUE && frame.progress >= .32f)
+
+    fun dragonDelight(frame: FinaleFrame): Float = when {
+        frame.scene.ordinal < FinaleScene.GIFT.ordinal -> 0f
+        frame.scene.ordinal > FinaleScene.GIFT.ordinal -> 1f
+        else -> ((frame.progress - .18f) / .06f).coerceIn(0f, 1f)
+    }
+}
+
 object FinaleTimeline {
     val durationMs = FinaleScene.entries.sumOf { it.durationMs }
     fun isFinalLevel(level: Int) = level == CampaignConfig.levels.last().level

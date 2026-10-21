@@ -10,6 +10,9 @@ import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.toPixelMap
 import android.graphics.PathMeasure
 import android.graphics.Region
+import android.graphics.Bitmap
+import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -32,7 +35,7 @@ class StarHintFlowTest {
         compose.activityRule.scenario.recreate()
     }
     private fun start(max: Int = 20, level: Int = 1, operation: Operations = Operations.BOTH) {
-        compose.runOnIdle { state.save(Settings(operations = operation, max = max)); state.start(level) }
+        compose.runOnIdle { state.save(Settings(operations = operation, max = max)); state.start(level.coerceAtMost(CampaignConfig.levels.size)) }
     }
     private fun gridCount(count: Int) = compose.onNodeWithTag("hint-grid").assert(
         SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "5 columns, 4 rows, $count stars"))
@@ -43,7 +46,7 @@ class StarHintFlowTest {
             compose.activity.setContent {
 
                 MaterialTheme {
-                    if (opened.value) StarHintScreen(q, "", level, close = { opened.value = false }) {}
+                    if (opened.value) StarHintScreen(q, "", level, close = { opened.value = false }, totalLevels = 30) {}
                 }
             }
         }
@@ -52,6 +55,14 @@ class StarHintFlowTest {
         return opened
     }
     private fun travel() { compose.mainClock.advanceTimeBy(600); compose.waitForIdle() }
+    private fun screenshot(name: String) {
+        compose.mainClock.advanceTimeBy(300) // Capture a visible middle frame, rather than the transparent fade-in.
+        compose.waitForIdle()
+        val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        File(compose.activity.getExternalFilesDir(null), name).outputStream().use {
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+        }
+    }
     private fun drag(source: SemanticsNodeInteraction, destination: SemanticsNodeInteraction) {
         val from = source.fetchSemanticsNode().boundsInRoot.center
         val to = destination.fetchSemanticsNode().boundsInRoot.center
@@ -63,19 +74,18 @@ class StarHintFlowTest {
         compose.onNodeWithTag("star-hint").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Automatic counting"))
         compose.onNodeWithContentDescription("Close hint").performClick()
         start(20, 11); compose.onNodeWithContentDescription("Star counting hint").performClick()
-        compose.onNodeWithTag("star-hint").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Interactive counting"))
-        gridCount(0)
+        compose.onNodeWithTag("star-hint").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, if (StarHintRules.automatic(11.coerceAtMost(CampaignConfig.levels.size))) "Automatic counting" else "Interactive counting"))
         compose.onNodeWithContentDescription("Close hint").performClick()
         start(21); compose.onNodeWithContentDescription("Star counting hint").assertDoesNotExist()
     }
     @Test fun xAndAndroidBackPreserveGameInputAndPassAndReopenFresh() {
-        start(level = 11)
+        start(max = 0, level = 11)
         compose.onNodeWithContentDescription("1").performClick()
         lateinit var question: Question
         lateinit var pass: SpacePass
         compose.runOnIdle { question = state.game!!.question; pass = state.spacePass }
         repeat(3) {
-            compose.onNodeWithContentDescription("Star counting hint").performClick(); gridCount(0)
+            compose.onNodeWithContentDescription("Star counting hint").performClick()
             if (it == 1) Espresso.pressBack() else compose.onNodeWithContentDescription("Close hint").performClick()
             compose.onNodeWithTag("star-hint").assertDoesNotExist()
             compose.runOnIdle {
@@ -150,8 +160,8 @@ class StarHintFlowTest {
         first.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Lit"))
         drag(first, bag); gridCount(1)
     }
-    @Test fun confirmingFromHintUsesExistingFeedbackOnceInBothModes() {
-        for (level in listOf(10, 11)) for (correct in listOf(true, false)) {
+    @Test fun confirmingFromHintUsesExistingFeedbackOnceForConfiguredLevels() {
+        for (level in listOf(1, CampaignConfig.levels.size).distinct()) for (correct in listOf(true, false)) {
             start(level = level)
             var expected = 0
             compose.runOnIdle { expected = if (correct) state.game!!.question.result else 999 }
@@ -319,6 +329,92 @@ class StarHintFlowTest {
             assertNoGroupLabels()
         }
         gridCount(4)
+    }
+    @Test fun tutorialHasThreeFiniteCyclesAndDoesNotCreateStarsOrBlockTouch() {
+        val opened = harness(Question(3, 5, true), 11)
+        val finger = compose.onNodeWithTag("hint-tutorial-finger")
+        compose.mainClock.advanceTimeBy(7_000); finger.assertDoesNotExist()
+        compose.mainClock.advanceTimeBy(1_100); finger.assertExists(); gridCount(0)
+        screenshot("tutorial-extract.png")
+        compose.mainClock.advanceTimeBy(2_800); finger.assertDoesNotExist()
+        compose.mainClock.advanceTimeBy(7_000); finger.assertDoesNotExist()
+        compose.mainClock.advanceTimeBy(1_100); finger.assertExists()
+        // Any real touch cancels, but cannot refund this second cycle.
+        compose.onNodeWithTag("hint-bag-yellow").performTouchInput { click() }
+        compose.mainClock.advanceTimeBy(32); finger.assertDoesNotExist(); gridCount(0)
+        compose.mainClock.advanceTimeBy(8_100); finger.assertExists()
+        compose.mainClock.advanceTimeBy(2_800); finger.assertDoesNotExist()
+        compose.mainClock.advanceTimeBy(30_000); finger.assertDoesNotExist(); gridCount(0)
+        drag(compose.onNodeWithTag("hint-bag-yellow"), compose.onNodeWithTag("hint-grid"))
+        gridCount(1)
+        drag(compose.onNodeWithTag("hint-star-0"), compose.onNodeWithTag("hint-bag-yellow"))
+        compose.mainClock.advanceTimeBy(12_000); finger.assertDoesNotExist(); gridCount(0)
+        compose.runOnUiThread { opened.value = false }; travel()
+        compose.runOnUiThread { opened.value = true }
+        compose.mainClock.advanceTimeBy(8_200); finger.assertExists(); gridCount(0)
+    }
+    @Test fun subtractionTutorialChangesStageAndNeverDimsForTheChild() {
+        harness(Question(7, 2, false), 11)
+        val finger = compose.onNodeWithTag("hint-tutorial-finger")
+        compose.mainClock.advanceTimeBy(8_100); finger.assertExists(); gridCount(0)
+        val bag = compose.onNodeWithTag("hint-bag-yellow")
+        drag(bag, compose.onNodeWithTag("hint-grid")); finger.assertDoesNotExist()
+        compose.mainClock.advanceTimeBy(8_100); finger.assertExists()
+        val star = compose.onNodeWithTag("hint-star-0")
+        screenshot("tutorial-dim.png")
+        star.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Lit"))
+        // A touch through the visual overlay still reaches the star.
+        star.performTouchInput { click() }; travel(); finger.assertDoesNotExist()
+        star.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Dimmed"))
+        star.performTouchInput { click() }; travel()
+        compose.mainClock.advanceTimeBy(8_100); finger.assertDoesNotExist()
+        star.performTouchInput { click() }; travel()
+        drag(star, bag); gridCount(0)
+        compose.mainClock.advanceTimeBy(12_000); finger.assertDoesNotExist()
+    }
+    @Test fun gameplayTutorialIsSeparatedFromMapAndCancelsOnPauseAndHintEntry() {
+        start(max = 0)
+        compose.mainClock.autoAdvance = false
+        compose.mainClock.advanceTimeBy(7_000)
+        val finger = compose.onNodeWithTag("hint-tutorial-finger")
+        finger.assertDoesNotExist()
+        compose.mainClock.advanceTimeBy(1_100); finger.assertExists()
+        screenshot("tutorial-open.png")
+        val star = compose.onNodeWithContentDescription("Star counting hint")
+        val map = compose.onNodeWithText("⌂ Map")
+        assertFalse(star.fetchSemanticsNode().boundsInRoot.overlaps(map.fetchSemanticsNode().boundsInRoot))
+        star.performTouchInput { click() }
+        compose.mainClock.advanceTimeBy(32); finger.assertDoesNotExist()
+        compose.mainClock.advanceTimeBy(12_000); finger.assertDoesNotExist() // automatic mode
+        compose.onNodeWithContentDescription("Close hint").performClick()
+        compose.mainClock.advanceTimeBy(8_100); finger.assertExists()
+        map.performTouchInput { click() }
+        compose.mainClock.advanceTimeBy(12_000); finger.assertDoesNotExist()
+        compose.onNodeWithText("Space Map", substring = false).performClick()
+        compose.mainClock.advanceTimeBy(12_000); finger.assertDoesNotExist()
+    }
+    @Test fun feedbackHidesTutorialAndNextQuestionResetsEvenForRepeatedZero() {
+        start(max = 0, operation = Operations.ADDITION)
+        compose.mainClock.autoAdvance = false
+        val finger = compose.onNodeWithTag("hint-tutorial-finger")
+        // Use all three cycles for this question.
+        repeat(3) {
+            compose.mainClock.advanceTimeBy(8_100); finger.assertExists()
+            compose.mainClock.advanceTimeBy(2_800); finger.assertDoesNotExist()
+        }
+        compose.mainClock.advanceTimeBy(12_000); finger.assertDoesNotExist()
+        compose.runOnIdle {
+            state.update { it.digit(0); it.confirm(android.os.SystemClock.elapsedRealtime()) }
+        }
+        compose.mainClock.advanceTimeBy(100); finger.assertDoesNotExist()
+        compose.runOnIdle {
+            state.update { it.tick(android.os.SystemClock.elapsedRealtime() + GameRules.CORRECT_FEEDBACK_MS) }
+            assertEquals(Phase.PLAYING, state.game!!.phase)
+            assertEquals(Question(0, 0, true), state.game!!.question)
+        }
+        compose.mainClock.advanceTimeBy(8_100); finger.assertExists()
+        compose.onNodeWithContentDescription("Star counting hint").performClick()
+        compose.mainClock.advanceTimeBy(100); finger.assertDoesNotExist()
     }
     @Test fun groupOutlinesAreSingleContoursAndExcludeOtherColorCenters() {
         val geometry = HintGeometry(1200f, 600f)

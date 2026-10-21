@@ -27,7 +27,7 @@ class SpacePassFlowTest {
         compose.onNodeWithText("SPACE PASS", substring = true).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("‹ Back").performClick()
         compose.onNodeWithText("Start Game").performClick()
-        compose.onNodeWithContentDescription("Level 2, locked").assertIsNotEnabled()
+        if (CampaignConfig.levels.size > 1) compose.onNodeWithContentDescription("Level 2, locked").assertIsNotEnabled()
         compose.runOnIdle { state.start(2); assertEquals(2, state.spacePass.remainingAttempts) }
         repeat(2) { index ->
             compose.onNodeWithContentDescription("Level 1, unlocked").performScrollTo().performClick()
@@ -91,8 +91,9 @@ class SpacePassFlowTest {
             }
             assertEquals(Phase.LEVEL_COMPLETE, model.game!!.phase)
             assertEquals(1, model.spacePass.remainingAttempts)
-            assertEquals(2, model.campaign.highestUnlockedLevel)
-            model.openMap(); model.start(2); model.leaveGame()
+            val next = minOf(2, CampaignConfig.levels.size)
+            assertEquals(next, model.campaign.highestUnlockedLevel)
+            model.openMap(); model.start(next); model.leaveGame()
             val exhausted = model.spacePass
             assertEquals(0, exhausted.remainingAttempts)
             assertEquals(epoch + SpacePassConfig.FREE_COOLDOWN_MS, exhausted.cooldownEnd)
@@ -105,7 +106,7 @@ class SpacePassFlowTest {
             epoch = exhausted.cooldownEnd
             reloaded.refreshPass()
             assertEquals(SpacePass(), reloaded.spacePass)
-            reloaded.start(2)
+            reloaded.start(next)
             assertEquals(1, reloaded.spacePass.remainingAttempts)
             assertEquals(Screen.GAME, reloaded.screen)
             assertEquals(reloaded.spacePass, AppState(application) { epoch }.spacePass)
